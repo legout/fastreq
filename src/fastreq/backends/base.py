@@ -8,9 +8,9 @@ data structures shared between the client and transports.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
-from typing import Any, Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -76,12 +76,11 @@ class NormalizedResponse:
 
     def __post_init__(self) -> None:
         if self.is_json and self.json_data is None:
+            import contextlib
             import json
 
-            try:
+            with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError):
                 self.json_data = json.loads(self.text)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
 
     @staticmethod
     def _normalize_headers(headers: Mapping[str, str] | dict[str, str]) -> dict[str, str]:
@@ -129,7 +128,7 @@ class NormalizedResponse:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class TransportKey:
     """Immutable key for caching proxy-scoped transport clients.
 

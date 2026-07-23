@@ -7,8 +7,8 @@ real chunked streaming, TLS configuration, and redirect support.
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -90,8 +90,12 @@ class HttpxBackend(Backend):
             "url": config.url,
             "params": config.params,
             "headers": config.headers,
-            "cookies": config.cookies,
         }
+
+        # Set cookies on the client instance (httpx 0.28 best practice)
+        if config.cookies:
+            for name, value in config.cookies.items():
+                client.cookies.set(name, value)
 
         if config.timeout is not None:
             kwargs["timeout"] = config.timeout

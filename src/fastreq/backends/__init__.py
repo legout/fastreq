@@ -17,11 +17,11 @@ _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
 
 __all__ = [
     "Backend",
-    "RequestConfig",
-    "NormalizedResponse",
-    "TransportKey",
-    "NiquestsBackend",
     "HttpxBackend",
+    "NiquestsBackend",
+    "NormalizedResponse",
+    "RequestConfig",
+    "TransportKey",
 ]
 
 

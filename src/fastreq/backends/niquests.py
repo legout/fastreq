@@ -7,8 +7,8 @@ and redirect support.
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 import niquests
 
@@ -96,8 +96,12 @@ class NiquestsBackend(Backend):
 
         if is_streaming:
             # Deliver chunks as they arrive — genuine streaming
+            # niquests iter_content returns a coroutine that must be awaited
+            # to get the async generator
             chunks: list[bytes] = []
-            async for chunk in response.iter_content(chunk_size=8192):
+            # niquests iter_content returns a coroutine wrapping an async generator
+            gen = await response.iter_content(chunk_size=8192)  # type: ignore[func-returns-value]
+            async for chunk in gen:
                 if chunk:
                     chunks.append(chunk)
                     stream_callback(chunk)

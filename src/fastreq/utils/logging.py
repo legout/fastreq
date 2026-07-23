@@ -1,3 +1,5 @@
+import sys
+
 from loguru import logger
 
 
@@ -22,7 +24,7 @@ def configure_logging(debug: bool = False, verbose: bool = False) -> tuple[bool,
     )
 
     logger.add(
-        sink="stderr",
+        sink=sys.stderr,
         level=log_level,
         format=format_string,
         colorize=True,

@@ -27,7 +27,7 @@ from .utils.headers import HeaderManager
 from .utils.logging import configure_logging
 from .utils.proxies import ProxyPool, ProxyPoolConfig, ProxySelection
 from .utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
-from .utils.retry import RetryConfig, RetryStrategy, DEFAULT_RETRYABLE_STATUSES
+from .utils.retry import DEFAULT_RETRYABLE_STATUSES, RetryConfig, RetryStrategy
 
 # Type alias for backend selection
 BackendName = Literal["auto", "niquests", "httpx"]
@@ -140,8 +140,8 @@ def _create_backend(backend: str, http2: bool) -> Backend:
             return HttpxBackend()
         except ImportError as e:
             raise ConfigurationError(
-                f"Backend 'httpx' requires the optional httpx dependency. "
-                f"Install with: pip install fastreq[httpx]",
+                "Backend 'httpx' requires the optional httpx dependency. "
+                "Install with: pip install fastreq[httpx]",
                 config_key="backend",
             ) from e
 
@@ -620,8 +620,8 @@ class FastRequests:
             case ReturnType.RESPONSE:
                 return response
             case ReturnType.STREAM:
-                if req.stream_callback:
-                    req.stream_callback(response.content)
+                # Chunks were already delivered to stream_callback during transport.
+                # No additional callback call needed here.
                 return None
 
 

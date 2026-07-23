@@ -15,44 +15,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Tests
+  quality:
+    name: Lint, Type Check, and Test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
       - name: Install dependencies
-        run: pip install -e ".[all,dev]"
-      - name: Run tests
-        run: pytest tests/ -v --cov=src/fastreq
+        run: uv sync --all-groups --python ${{ matrix.python-version }}
 
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - name: Install linting tools
-        run: pip install ruff
-      - name: Run ruff
-        run: ruff check src/fastreq/
+      - name: Check formatting
+        run: uv run ruff format --check .
 
-  typecheck:
-    name: Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - name: Install mypy
-        run: pip install -e ".[all,dev]" types-requests h2
-      - name: Run mypy
-        run: mypy src/fastreq/
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run ty check src
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Build
+        if: matrix.python-version == '3.14'
+        run: uv build

@@ -50,6 +50,7 @@ module-root = "src"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["openspec/changes/archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
@@ -62,9 +63,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-
-[tool.ty]
-python-version = "3.14"
 
 [tool.ty.environment]
 python-version = "3.14"

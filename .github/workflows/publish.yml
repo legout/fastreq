@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 2.0.2)'
+        description: 'Version to publish (e.g., 3.0.0)'
         required: true
         type: string
 
@@ -23,21 +23,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
-        id: version
-        run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install hatch
-        run: pip install hatch
+      - name: Set up Python
+        run: uv python install 3.14
 
       - name: Build package
-        run: hatch build
+        run: uv build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

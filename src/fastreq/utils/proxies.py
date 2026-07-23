@@ -7,7 +7,6 @@ failure cooldown and success recovery. Free-proxy discovery is NOT supported.
 from __future__ import annotations
 
 import asyncio
-import itertools
 import random
 import time
 from collections.abc import Iterable
@@ -116,7 +115,13 @@ class ProxyPool:
         self._load_proxies(proxies or [])
 
     @classmethod
-    def from_webshare_text(cls, text: str, **kwargs: object) -> ProxyPool:
+    def from_webshare_text(
+        cls,
+        text: str,
+        *,
+        selection: ProxySelection = ProxySelection.ROUND_ROBIN,
+        cooldown: float = 60.0,
+    ) -> ProxyPool:
         """Create a ProxyPool from Webshare plain-text format.
 
         Webshare exports proxies as lines of 'ip:port:user:password'.
@@ -124,7 +129,8 @@ class ProxyPool:
 
         Args:
             text: Webshare proxy list text (one proxy per line)
-            **kwargs: Additional ProxyPoolConfig fields
+            selection: Proxy selection strategy (default round_robin)
+            cooldown: Seconds before retrying a failed proxy (default 60)
 
         Returns:
             ProxyPool instance
@@ -146,15 +152,22 @@ class ProxyPool:
                 proxies.append(f"http://{host}:{port}")
         if not proxies:
             raise ProxyError("No valid proxies found in Webshare text")
-        return cls(proxies, **kwargs)  # type: ignore[arg-type]
+        return cls(proxies, config=ProxyPoolConfig(selection=selection, cooldown=cooldown))
 
     @classmethod
-    def from_env(cls, env_var: str = "FASTREQ_PROXIES", **kwargs: object) -> ProxyPool:
+    def from_env(
+        cls,
+        env_var: str = "FASTREQ_PROXIES",
+        *,
+        selection: ProxySelection = ProxySelection.ROUND_ROBIN,
+        cooldown: float = 60.0,
+    ) -> ProxyPool:
         """Create a ProxyPool from a comma-separated environment variable.
 
         Args:
             env_var: Environment variable name (default FASTREQ_PROXIES)
-            **kwargs: Additional ProxyPoolConfig fields
+            selection: Proxy selection strategy (default round_robin)
+            cooldown: Seconds before retrying a failed proxy (default 60)
 
         Returns:
             ProxyPool instance (may be empty if env var is not set)
@@ -163,7 +176,7 @@ class ProxyPool:
 
         raw = os.getenv(env_var, "")
         proxies = [p.strip() for p in raw.split(",") if p.strip()]
-        return cls(proxies, **kwargs)  # type: ignore[arg-type]
+        return cls(proxies, config=ProxyPoolConfig(selection=selection, cooldown=cooldown))
 
     def _load_proxies(self, proxies: Iterable[str]) -> None:
         """Load and normalize proxies, filtering invalid entries."""
@@ -184,9 +197,7 @@ class ProxyPool:
             valid += 1
 
         if invalid > 0:
-            logger.info(
-                f"Loaded {valid} valid proxies, filtered {invalid} invalid proxies"
-            )
+            logger.info(f"Loaded {valid} valid proxies, filtered {invalid} invalid proxies")
 
     @property
     def selection(self) -> ProxySelection:
@@ -208,11 +219,7 @@ class ProxyPool:
     def count_available(self) -> int:
         """Number of proxies not currently in cooldown."""
         now = time.monotonic()
-        return sum(
-            1
-            for p in self._proxies
-            if p not in self._failed or self._failed[p] <= now
-        )
+        return sum(1 for p in self._proxies if p not in self._failed or self._failed[p] <= now)
 
     async def acquire(self) -> str | None:
         """Get the next available proxy.

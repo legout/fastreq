@@ -11,16 +11,20 @@ import asyncio
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from loguru import logger
 
 from ..exceptions import (
     BackendError,
     ConfigurationError,
-    RetryExhaustedError,
     RetryableResponse,
+    RetryExhaustedError,
     ValidationError,
 )
+
+# Type variable for the generic retry execute return type.
+_T = TypeVar("_T")
 
 # Status codes that are considered retryable
 DEFAULT_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -111,8 +115,8 @@ class RetryStrategy:
 
     async def execute(
         self,
-        func: Callable[..., Awaitable[object]],
-    ) -> object:
+        func: Callable[..., Awaitable[_T]],
+    ) -> _T:
         """Execute an async function with retry logic.
 
         Args:
@@ -139,7 +143,9 @@ class RetryStrategy:
 
                 if attempt < self.config.max_retries:
                     # Use Retry-After if available, otherwise exponential backoff
-                    delay = retry_after if retry_after is not None else self._calculate_delay(attempt)
+                    delay = (
+                        retry_after if retry_after is not None else self._calculate_delay(attempt)
+                    )
                     logger.debug(
                         f"Retry attempt {attempt + 1}/{self.config.max_retries}: {e}, "
                         f"waiting {delay:.2f}s"

@@ -2,10 +2,10 @@ import pytest
 
 from fastreq.exceptions import ValidationError
 from fastreq.utils.validators import (
-    validate_url,
-    validate_proxy,
-    validate_headers,
     normalize_urls,
+    validate_headers,
+    validate_proxy,
+    validate_url,
 )
 
 

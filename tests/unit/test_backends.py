@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+
 from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig
 
 

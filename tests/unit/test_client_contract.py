@@ -13,12 +13,10 @@ from fastreq import (
     ConfigurationError,
     FastRequests,
     ParallelRequests,
-    ReturnType,
 )
-from fastreq.client import _create_backend
-from fastreq.backends.base import Backend
-from fastreq.backends.niquests import NiquestsBackend
 from fastreq.backends.httpx import HttpxBackend
+from fastreq.backends.niquests import NiquestsBackend
+from fastreq.client import _create_backend
 
 
 class TestBackendConstruction:

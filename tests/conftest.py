@@ -8,6 +8,7 @@ custom status codes, and Retry-After headers.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import Callable
 
@@ -91,10 +92,8 @@ class LocalTestServer:
             pass
         finally:
             writer.close()
-            try:
+            with contextlib.suppress(Exception):
                 await writer.wait_closed()
-            except Exception:
-                pass
 
     async def _handle_request(
         self,
@@ -131,12 +130,14 @@ class LocalTestServer:
             body = await reader.readexactly(int(content_length))
 
         # Record request
-        self.requests_received.append({
-            "method": method,
-            "path": path,
-            "headers": headers,
-            "body": body,
-        })
+        self.requests_received.append(
+            {
+                "method": method,
+                "path": path,
+                "headers": headers,
+                "body": body,
+            }
+        )
 
         # Find matching route
         route_key = (method.upper(), path)

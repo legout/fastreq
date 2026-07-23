@@ -1,6 +1,4 @@
-import pytest
 from fastreq.utils.logging import configure_logging, reset_logging
-from loguru import logger
 
 
 class TestConfigureLogging:

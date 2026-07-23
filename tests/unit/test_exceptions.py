@@ -1,5 +1,3 @@
-import pytest
-
 from fastreq.exceptions import (
     BackendError,
     ConfigurationError,

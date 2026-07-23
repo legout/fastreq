@@ -2,16 +2,28 @@
 
 Learn how to configure proxy rotation and integrate with proxy providers.
 
+## Proxy Policy
+
+fastreq uses **explicit proxy pools only** — no automatic discovery of free/public proxies.
+
+Proxies are provided through one of three methods:
+
+1. **Explicit proxy list** — pass `proxies=[...]` in code
+2. **Environment variable** — set `FASTREQ_PROXIES`
+3. **Webshare file** — set `webshare_file` to a file path containing proxy entries
+
+This is a deliberate design choice: free/public proxies are unreliable, slow, and often abused. Production scraping should use a paid proxy service (e.g., Webshare.io, Bright Data) or your own infrastructure.
+
 ## Setting Up Proxies
 
 Proxies can be configured via environment variable or code:
 
 ### Using Environment Variables
 
-Set the `PARALLEL_REQUESTS_PROXIES` environment variable:
+Set the `FASTREQ_PROXIES` environment variable:
 
 ```bash
-export PARALLEL_REQUESTS_PROXIES="http://proxy1:8080,http://proxy2:8080,socks5://proxy3:1080"
+export FASTREQ_PROXIES="http://proxy1:8080,http://proxy2:8080,socks5://proxy3:1080"
 ```
 
 ### Using .env File
@@ -20,7 +32,7 @@ Create a `.env` file:
 
 ```env
 # .env
-PARALLEL_REQUESTS_PROXIES=http://proxy1:8080,http://proxy2:8080,socks5://proxy3:1080
+FASTREQ_PROXIES=http://proxy1:8080,http://proxy2:8080,socks5://proxy3:1080
 ```
 
 Load with python-dotenv:
@@ -52,6 +64,19 @@ proxies = [
 results = fastreq(
     urls=["https://httpbin.org/ip"] * 10,
     proxies=proxies,
+)
+```
+
+### Using a Webshare File
+
+Point `webshare_file` to a file containing one proxy per line (`IP:PORT:USER:PASS` format):
+
+```python
+from fastreq import fastreq
+
+results = fastreq(
+    urls=["https://httpbin.org/ip"] * 10,
+    webshare_file="/path/to/proxies.txt",
 )
 ```
 
@@ -102,7 +127,7 @@ results = fastreq(
 # .env
 WEBSHARE_USERNAME=your_username
 WEBSHARE_PASSWORD=your_password
-PARALLEL_REQUESTS_PROXIES=http://${WEBSHARE_USERNAME}:${WEBSHARE_PASSWORD}@p.webshare.io:80
+FASTREQ_PROXIES=http://${WEBSHARE_USERNAME}:${WEBSHARE_PASSWORD}@p.webshare.io:80
 ```
 
 ## Verifying Proxy Usage
@@ -220,10 +245,10 @@ results = fastreq(
 Test if a proxy works:
 
 ```python
-import requests
+import niquests
 
 try:
-    response = requests.get(
+    response = niquests.get(
         "https://httpbin.org/ip",
         proxies={"http": "http://proxy.example.com:8080"},
         timeout=10,
@@ -262,29 +287,13 @@ except ProxyError as e:
     # Check proxy address, port, and authentication
 ```
 
-## Free Proxies (Experimental)
-
-The library has experimental support for fetching free proxies, but this feature is not fully implemented yet.
-
-```python
-from fastreq import fastreq
-
-# This is experimental and may not work
-results = fastreq(
-    urls=["https://httpbin.org/ip"] * 5,
-    use_free_proxies=True,  # Experimental
-)
-```
-
-**Warning**: Free proxies are unreliable and slow. Use a paid proxy service like WebShare.io for production use.
-
 ## Best Practices
 
 1. **Use Environment Variables**: Store proxy URLs in `.env` files
 2. **Monitor Proxy Health**: Check proxy status before large batches
 3. **Handle Failures**: Use `return_none_on_failure` for unreliable proxies
 4. **Rotate Properly**: Use enough proxies to distribute load
-5. **Use Paid Services**: Free proxies are unreliable for production
+5. **Use Paid Services**: Free/public proxies are unreliable for production — use a paid service like Webshare.io
 
 ## Example: Robust Proxy Configuration
 
@@ -296,7 +305,7 @@ from fastreq import fastreq
 load_dotenv()
 
 # Load proxies from environment
-proxies_str = os.getenv("PARALLEL_REQUESTS_PROXIES", "")
+proxies_str = os.getenv("FASTREQ_PROXIES", "")
 proxies = [p.strip() for p in proxies_str.split(",") if p.strip()]
 
 # Add authenticated proxy if configured

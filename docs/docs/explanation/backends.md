@@ -1,15 +1,13 @@
 # Backends
 
-The fastreq library supports four HTTP backends, each with different capabilities and trade-offs.
+The fastreq library supports two HTTP backends, each with different capabilities and trade-offs.
 
 ## Overview
 
 | Backend | HTTP/2 | Streaming | Async Native | Notes |
 |---------|--------|----------|--------------|-------|
-| **niquests** | ✓ | ✓ | ✓ | Recommended default |
-| **httpx** | ✓* | ✓ | ✓ | Modern API, httpx ecosystem |
-| **aiohttp** | ✗ | ✓ | ✓ | Mature, widely used |
-| **requests** | ✗ | ✓ | ✗ | Familiar API, wrapped |
+| **niquests** | ✓ | ✓ | ✓ | Default, required dependency |
+| **httpx** | ✓* | ✓ | ✓ | Optional, modern API |
 
 *HTTP/2 requires httpx[http2] extra (installs h2 package)
 
@@ -17,12 +15,10 @@ The fastreq library supports four HTTP backends, each with different capabilitie
 
 When `backend="auto"` (default), the library checks backends in this order:
 
-1. **niquests** - HTTP/2 support, streaming, async native
+1. **niquests** - HTTP/2 support, streaming, async native (default)
 2. **httpx** - HTTP/2 support (with h2 extra), modern async API
-3. **aiohttp** - Streaming support, async native
-4. **requests** - Streaming via thread wrapper, sync-first
 
-The first available backend is used. This means if you have both niquests and httpx installed, niquests will be selected.
+The first available backend is used. Since niquests is a required dependency, it will always be selected unless you explicitly request httpx.
 
 ## Niquests Backend
 
@@ -108,98 +104,19 @@ class HttpxBackend(Backend):
 - **Efficient Streaming**: Memory-efficient for large responses
 - **Modern Design**: Clean API, well-documented
 
-## Aiohttp Backend
-
-### Capabilities
-
-- **No HTTP/2**: Only HTTP/1.1 (unless using external extensions)
-- **Streaming**: Full streaming support
-- **Async Native**: Pure async implementation
-- **Mature Library**: Widely used and battle-tested
-
-### When to Use
-
-- **Already using aiohttp** in your project
-- **Need aiohttp-specific features** not exposed by our abstraction
-- **HTTP/1.1 environments** (most standard web services)
-- **Familiar aiohttp API** (though we abstract it)
-
-### Implementation Details
-
-```python
-class AiohttpBackend(Backend):
-    async def __init__(self, http2_enabled: bool = True):
-        self._session = aiohttp.ClientSession()
-        # http2_enabled is ignored, warning is issued
-
-    async def request(self, config: RequestConfig) -> NormalizedResponse:
-        response = await self._session.request(**kwargs)
-        content = await response.read()  # Always read full content
-```
-
-**Note**: When `http2=True` is set with aiohttp, a warning is issued because aiohttp doesn't natively support HTTP/2.
-
-### Performance Characteristics
-
-- **Connection Pooling**: Efficient connection reuse
-- **Mature Stability**: Years of production use
-- **HTTP/1.1 Only**: No multiplexing benefits
-- **Low Overhead**: Async native, minimal thread usage
-
-## Requests Backend
-
-### Capabilities
-
-- **No HTTP/2**: Only HTTP/1.1
-- **Streaming**: Full streaming support (via thread wrapper)
-- **Sync-First**: Synchronous library wrapped in async
-- **Familiar API**: Most developers know requests
-
-### When to Use
-
-- **Already using requests** and don't want to add dependencies
-- **Sync codebases** migrating to async gradually
-- **Need requests-specific features** (session hooks, custom adapters)
-- **Simple use cases** where HTTP/2 isn't needed
-
-### Implementation Details
-
-```python
-class RequestsBackend(Backend):
-    async def __init__(self, http2_enabled: bool = True):
-        self._session = requests.Session()
-        # http2_enabled is ignored, warning is issued
-
-    async def request(self, config: RequestConfig) -> NormalizedResponse:
-        def _make_request():
-            return self._session.request(**kwargs)
-
-        # Run synchronous request in thread pool
-        response = await asyncio.to_thread(_make_request)
-```
-
-**Thread Wrapper**: The synchronous `requests.Session.request()` is executed in a thread pool using `asyncio.to_thread()`. This allows it to work in an async context but adds thread overhead.
-
-### Performance Characteristics
-
-- **Thread Pool Overhead**: Each request runs in a thread pool
-- **Connection Pooling**: Standard requests connection reuse
-- **Familiar Stability**: Proven in production
-- **No HTTP/2 Benefits**: Misses multiplexing advantages
-
 ## Feature Comparison Table
 
-| Feature | niquests | httpx | aiohttp | requests |
-|---------|----------|-------|---------|----------|
-| **HTTP/2** | ✓ (native) | ✓ (with h2) | ✗ (extensions only) | ✗ |
-| **HTTP/1.1** | ✓ | ✓ | ✓ | ✓ |
-| **Streaming** | ✓ | ✓ | ✓ | ✓ (thread wrapper) |
-| **Async Native** | ✓ | ✓ | ✓ | ✗ (thread wrapper) |
-| **Connection Pooling** | ✓ | ✓ | ✓ | ✓ |
-| **Session Cookies** | ✓ | ✓ | ✓ | ✓ |
-| **Thread Safe** | ✓ | ✓ | ✓ | ✓ |
-| **Maturity** | Medium | High | High | Very High |
-| **Installation Size** | ~2MB | ~1MB | ~1MB | ~0.5MB |
+| Feature | niquests | httpx |
+|---------|----------|-------|
+| **HTTP/2** | ✓ (native) | ✓ (with h2) |
+| **HTTP/1.1** | ✓ | ✓ |
+| **Streaming** | ✓ | ✓ |
+| **Async Native** | ✓ | ✓ |
+| **Connection Pooling** | ✓ | ✓ |
+| **Session Cookies** | ✓ | ✓ |
+| **Thread Safe** | ✓ | ✓ |
+| **Maturity** | Medium | High |
+| **Installation Size** | ~2MB | ~1MB |
 
 ## Performance Considerations
 
@@ -208,66 +125,45 @@ class RequestsBackend(Backend):
 For high-throughput scenarios, performance typically ranks:
 
 1. **niquests** (HTTP/2): Fastest due to multiplexing
-2. **aiohttp**: Fast, mature async implementation
-3. **requests**: Slightly slower due to thread overhead
+2. **httpx** (HTTP/2 with h2): Comparable performance, modern async
 
 ### Memory Usage
 
-All backends have similar memory characteristics for the same workload, but:
-
-- **niquests** with HTTP/2: Fewer connections → less memory for connections
-- **requests**: Thread pool uses additional memory
-- **aiohttp**: Standard async memory footprint
+Both backends have similar memory characteristics for the same workload, with HTTP/2 providing fewer connections → less memory for connections.
 
 ### Latency
 
 For single-request latency, differences are minimal. For concurrent requests:
 
-- **HTTP/2 (niquests)**: Lower latency due to connection reuse
-- **HTTP/1.1 (aiohttp/requests)**: Higher latency under high concurrency
+- **HTTP/2 (niquests/httpx)**: Lower latency due to connection reuse and multiplexing
+- **HTTP/1.1 (httpx without h2)**: Higher latency under high concurrency
 
 ### CPU Usage
 
-CPU usage generally follows async vs sync pattern:
-
-- **niquests/aiohttp**: Lower CPU (async native)
-- **requests**: Higher CPU (thread pool overhead)
+Both backends are async native, resulting in lower CPU usage compared to synchronous libraries.
 
 ## Backend Selection Guide
 
 ### Choose niquests if:
-- ✓ You want HTTP/2 support
+- ✓ You want HTTP/2 support out of the box
 - ✓ You need maximum performance
 - ✓ You're starting a new project
 - ✓ You care about connection efficiency
 
 ### Choose httpx if:
 - ✓ You prefer httpx's modern API
-- ✓ You need HTTP/2 with aio-like async interface
+- ✓ You need HTTP/2 with a clean async interface
 - ✓ Your project uses httpx
 - ✓ You value clean, well-documented APIs
 
-### Choose aiohttp if:
-- ✓ You're already using aiohttp
-- ✓ You need aiohttp-specific features
-- ✓ Your project uses aiohttp extensively
-- ✓ HTTP/1.1 is sufficient
-
-### Choose requests if:
-- ✓ You're already using requests
-- ✓ You want to minimize dependencies
-- ✓ You're migrating a sync codebase
-- ✓ HTTP/2 isn't needed
-- ✓ You need requests-specific features (custom adapters, hooks)
-
 ## Example: Backend-Specific Behavior
 
-### HTTP/2 Multiplexing (niquests/httpx only)
+### HTTP/2 Multiplexing (niquests/httpx)
 
 With HTTP/2, multiple requests share a single connection:
 
 ```python
-# With niquests (HTTP/2 enabled)
+# With niquests (HTTP/2 enabled by default)
 client = FastRequests(backend="niquests", http2=True)
 # All 100 requests share 1-2 connections due to multiplexing
 results = await client.request(urls=[url] * 100)
@@ -278,17 +174,6 @@ client = FastRequests(backend="httpx", http2=True)
 results = await client.request(urls=[url] * 100)
 ```
 
-### Connection Behavior (HTTP/1.1 backends)
-
-With HTTP/1.1, each connection handles one request at a time:
-
-```python
-# With aiohttp or requests (HTTP/1.1 only)
-client = FastRequests(backend="aiohttp")
-# With concurrency=20, up to 20 connections are used
-results = await client.request(urls=[url] * 100)
-```
-
 The `concurrency` parameter directly limits the number of concurrent connections.
 
 ## Installation and Dependencies
@@ -296,28 +181,17 @@ The `concurrency` parameter directly limits the number of concurrent connections
 ### Installing with Specific Backend
 
 ```bash
-# Install only niquests
-pip install fastreq[niquests]
+# niquests is included by default
+pip install fastreq
 
-# Install only httpx (HTTP/2 requires httpx[http2])
+# Add httpx support (optional)
 pip install fastreq[httpx]
-
-# Install only aiohttp
-pip install fastreq[aiohttp]
-
-# Install only requests
-pip install fastreq[requests]
-
-# Install all backends (recommended)
-pip install fastreq[all]
 ```
 
 ### Dependency Sizes
 
 - **niquests**: ~2MB (includes urllib3 dependencies)
 - **httpx**: ~1MB (includes httpcore, h2 optional)
-- **aiohttp**: ~1MB (includes yarl, multidict)
-- **requests**: ~0.5MB (includes urllib3)
 
 ## Backend Internals
 
@@ -344,14 +218,6 @@ except niquests.RequestException as e:
 # httpx
 except httpx.HTTPError as e:
     raise BackendError(f"Request failed: {e}", backend_name=self.name)
-
-# aiohttp
-except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-    raise BackendError(f"Request failed: {e}", backend_name=self.name)
-
-# requests
-except requests.RequestException as e:
-    raise BackendError(f"Request failed: {e}", backend_name=self.name)
 ```
 
 ### Response Normalization
@@ -375,10 +241,10 @@ print(response.url)            # Final URL (after redirects)
 
 **Problem**: You set `http2=True` but requests are still HTTP/1.1
 
-**Solution**: Ensure you're using niquests or httpx backend:
+**Solution**: Ensure you're using niquests (default) or httpx with h2 extra:
 
 ```python
-# niquests
+# niquests (default, HTTP/2 native)
 client = FastRequests(backend="niquests", http2=True)
 
 # httpx (requires httpx[http2] extra)
@@ -403,21 +269,10 @@ The backend will automatically detect if h2 is available and enable HTTP/2.
 
 **Problem**: `ConfigurationError: No suitable backend found`
 
-**Solution**: Install a backend:
+**Solution**: This should not happen since niquests is a required dependency. If it does, reinstall fastreq:
+
 ```bash
-pip install fastreq[all]  # or specific backend
-```
-
-### Thread Pool Exhaustion (requests backend)
-
-**Problem**: High CPU usage with requests backend
-
-**Solution**: Reduce concurrency or use aiohttp/niquests:
-```python
-client = FastRequests(
-    backend="requests",  # or "aiohttp"
-    concurrency=10,      # Lower concurrency for requests
-)
+pip install --force-reinstall fastreq
 ```
 
 ## Related Documentation

@@ -168,12 +168,12 @@ config = RetryConfig(
 
 ## Using Retry Strategy
 
-### In ParallelRequests Client
+### In FastRequests Client
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 
-client = ParallelRequests(
+client = FastRequests(
     max_retries=3,  # Built-in retry
 )
 
@@ -227,11 +227,11 @@ except RetryExhaustedError as e:
 ## Complete Example
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 from fastreq.exceptions import RetryExhaustedError
 import httpx
 
-client = ParallelRequests(
+client = FastRequests(
     max_retries=3,              # Retry up to 3 times
 )
 

@@ -1,21 +1,19 @@
-# Parallel Requests Examples
+# fastreq Examples
 
-This directory contains executable Python examples demonstrating the features of the `parallel-requests` library.
+This directory contains executable Python examples demonstrating the features of the `fastreq` library.
 
 ## Prerequisites
 
 ### Installation
 
-First, install the library with all backends:
+First, install the library. niquests is included by default:
 
 ```bash
-# Install with all backends (recommended)
-pip install "parallel-requests[all]"
+# Default install (includes niquests)
+pip install fastreq
 
-# Or install specific backends
-pip install "parallel-requests[niquests]"  # For HTTP/2 support
-pip install "parallel-requests[aiohttp]"
-pip install "parallel-requests[requests]"
+# Add optional httpx backend
+pip install fastreq[httpx]
 ```
 
 ### Environment Variables
@@ -30,8 +28,9 @@ Edit `.env` with your values:
 
 ```bash
 # Proxy settings
-PROXY_URL=http://user:pass@proxy.example.com:8080
-WEBSHARE_URL=https://your-api-key:@proxy.webshare.io/api/v2/proxy/list?mode=direct&countries=all
+FASTREQ_PROXIES=http://user:pass@proxy.example.com:8080
+WEBSHARE_USERNAME=your_username
+WEBSHARE_PASSWORD=your_password
 
 # Optional API keys for specific examples
 API_KEY=your_api_key_here
@@ -74,7 +73,7 @@ python3 01-basic-requests.py
 | 08 | `08-streaming-downloads.py` | Streaming large files with progress tracking |
 | 09 | `09-error-handling.py` | Exception handling and graceful failures |
 | 10 | `10-backend-selection.py` | Backend selection and feature comparison |
-| 11 | `11-http2-usage.py` | HTTP/2 features (requires niquests backend) |
+| 11 | `11-http2-usage.py` | HTTP/2 features (niquests backend) |
 
 ### Response Handling
 
@@ -92,9 +91,9 @@ python3 01-basic-requests.py
 ### Basic Usage
 
 ```python
-from parallel_requests import parallel_requests
+from fastreq import fastreq
 
-results = parallel_requests(
+results = fastreq(
     urls=["https://httpbin.org/get"] * 5,
     concurrency=3,
 )
@@ -103,9 +102,9 @@ results = parallel_requests(
 ### Async Context Manager
 
 ```python
-from parallel_requests import ParallelRequests
+from fastreq import FastRequests
 
-client = ParallelRequests(concurrency=5)
+client = FastRequests(concurrency=5)
 async with client:
     results = await client.request(urls=my_urls)
 ```
@@ -113,9 +112,9 @@ async with client:
 ### Custom Parsing
 
 ```python
-from parallel_requests import parallel_requests, ReturnType
+from fastreq import fastreq, ReturnType
 
-results = parallel_requests(
+results = fastreq(
     urls=my_urls,
     return_type=ReturnType.RESPONSE,
     parse_func=lambda r: r.status_code,
@@ -134,14 +133,16 @@ Examples use publicly available APIs for testing:
 
 ### "No suitable backend found" Error
 
-Install at least one backend:
+This should not happen since niquests is a required dependency. If it does, reinstall:
 
 ```bash
-pip install niquests  # Recommended for HTTP/2
-# or
-pip install aiohttp
-# or
-pip install requests
+pip install --force-reinstall fastreq
+```
+
+For optional httpx backend:
+
+```bash
+pip install fastreq[httpx]
 ```
 
 ### Proxy Errors
@@ -149,10 +150,11 @@ pip install requests
 - Verify proxy URL format: `http://user:pass@host:port`
 - Test proxy connectivity manually first
 - Check `.env` file is loaded correctly
+- Use `FASTREQ_PROXIES` environment variable
 
 ### Import Errors
 
-Ensure you're using Python 3.10+:
+Ensure you're using Python 3.11+:
 
 ```bash
 python --version
@@ -160,6 +162,6 @@ python --version
 
 ## Additional Resources
 
-- [Official Documentation](https://github.com/your-org/parallel-requests)
+- [Official Documentation](https://github.com/legout/fastreq)
 - [API Reference](docs/reference/api/)
 - [How-to Guides](docs/how-to-guides/)

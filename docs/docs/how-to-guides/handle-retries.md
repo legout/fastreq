@@ -217,18 +217,11 @@ results = fastreq(
     backend="niquests",
 )
 
-# aiohttp: Async retries
+# httpx: HTTP/2 retries with modern async API
 results = fastreq(
     urls=["https://api.example.com/endpoint"],
     max_retries=3,
-    backend="aiohttp",
-)
-
-# requests: Sync retries via threading
-results = fastreq(
-    urls=["https://api.example.com/endpoint"],
-    max_retries=3,
-    backend="requests",
+    backend="httpx",
 )
 ```
 

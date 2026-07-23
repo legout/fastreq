@@ -52,14 +52,11 @@ def validate_proxy(proxy: str) -> bool:
     ip_port_simple = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$"
     http_url = r"^https?://.+"
 
-    if (
+    return bool(
         re.match(ip_port_with_auth, proxy)
         or re.match(ip_port_simple, proxy)
         or re.match(http_url, proxy)
-    ):
-        return True
-
-    return False
+    )
 
 
 def validate_headers(headers: dict[str, Any]) -> bool:

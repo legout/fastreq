@@ -179,3 +179,30 @@ class PartialFailureError(FastRequestsError):
 
 
 ParallelRequestsError = FastRequestsError
+
+
+class RetryableResponse(FastRequestsError):
+    """Raised when a response has a retryable status code.
+
+    Carries the status code and optional Retry-After delay so the retry
+    strategy can make informed decisions without re-inspecting the response.
+
+    Attributes:
+        status_code: HTTP status code that triggered the retry
+        retry_after: Seconds to wait before retrying (from Retry-After header)
+        url: URL that returned the retryable status
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        retry_after: float | None = None,
+        url: str | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.url = url
+        super().__init__(message, *args, **kwargs)

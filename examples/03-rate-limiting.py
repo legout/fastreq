@@ -9,6 +9,7 @@ This example demonstrates:
 """
 
 import time
+
 from fastreq import fastreq
 
 

@@ -9,9 +9,8 @@ This example demonstrates:
 """
 
 from fastreq import (
-    fastreq,
-    FastRequests,
     ReturnType,
+    fastreq,
 )
 
 

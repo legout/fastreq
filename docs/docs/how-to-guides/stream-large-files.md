@@ -275,7 +275,7 @@ results = fastreq(
 
 ## Streaming with Different Backends
 
-### niquests (Recommended)
+### niquests (Default, Recommended)
 
 ```python
 results = fastreq(
@@ -286,23 +286,12 @@ results = fastreq(
 )
 ```
 
-### aiohttp
+### httpx
 
 ```python
 results = fastreq(
     urls=["https://example.com/large-file.zip"],
-    backend="aiohttp",
-    return_type="stream",
-    stream_callback=lambda r, u: save_stream(r, u),
-)
-```
-
-### requests
-
-```python
-results = fastreq(
-    urls=["https://example.com/large-file.zip"],
-    backend="requests",
+    backend="httpx",
     return_type="stream",
     stream_callback=lambda r, u: save_stream(r, u),
 )

@@ -8,7 +8,7 @@ This example demonstrates:
 - User agent headers in requests
 """
 
-from fastreq import fastreq, FastRequests
+from fastreq import fastreq
 
 
 def main():
@@ -50,7 +50,7 @@ def main():
 
     print("\nUser agents used:")
     user_agents = set()
-    for i, result in enumerate(results):
+    for _i, result in enumerate(results):
         if result and "user-agent" in result:
             ua = result["user-agent"]
             user_agents.add(ua)

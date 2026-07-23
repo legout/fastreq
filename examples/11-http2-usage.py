@@ -7,11 +7,12 @@ This example demonstrates:
 - Checking HTTP/2 protocol
 - HTTP/2 benefits for performance
 
-Note: HTTP/2 requires niquests backend
+Note: HTTP/2 requires niquests backend (default) or httpx with h2 extra
 """
 
 import asyncio
-from fastreq import fastreq, FastRequests
+
+from fastreq import FastRequests, fastreq
 
 
 def main():
@@ -42,8 +43,8 @@ def main():
 
     except Exception as e:
         print(f"✗ HTTP/2 test failed: {e}")
-        print("\nNote: HTTP/2 requires niquests backend")
-        print("Install with: pip install 'parallel-requests[niquests]'")
+        print("\nNote: HTTP/2 requires niquests backend (default)")
+        print("Install with: pip install fastreq")
 
     print("\n\nScenario 2: HTTP/2 vs HTTP/1.1 comparison")
     print("-" * 50)
@@ -86,10 +87,11 @@ def main():
         print(f"✗ Async HTTP/2 failed: {e}")
 
     print("\n--- HTTP/2 Setup ---")
-    print("1. Install niquests: pip install 'parallel-requests[niquests]'")
+    print("1. niquests is included by default with fastreq")
     print("2. Use backend='niquests' or backend='auto'")
     print("3. Set http2=True (default is True)")
     print("4. Server must support HTTP/2")
+    print("5. For httpx backend: pip install fastreq[httpx]")
 
     print("\n✓ HTTP/2 can significantly improve performance")
 

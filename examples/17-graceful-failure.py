@@ -9,8 +9,8 @@ This example demonstrates:
 """
 
 from fastreq import (
-    fastreq,
     PartialFailureError,
+    fastreq,
 )
 
 
@@ -33,10 +33,10 @@ def main():
             verbose=False,
         )
     except PartialFailureError as e:
-        print(f"PartialFailureError raised")
+        print("PartialFailureError raised")
         print(f"  Successes: {e.successes}")
         print(f"  Failures: {e.total - e.successes}")
-        print(f"  Failed URLs:")
+        print("  Failed URLs:")
         for url in e.get_failed_urls():
             error = e.failures[url].error
             print(f"    - {url}: {error}")
@@ -56,7 +56,7 @@ def main():
     print(f"Successes: {success_count}")
     print(f"Failures: {failure_count}")
     print("\nDetailed results:")
-    for i, (url, result) in enumerate(zip(urls, results)):
+    for i, (url, result) in enumerate(zip(urls, results, strict=False)):
         status = "✓ Success" if result is not None else "✗ Failed (None)"
         print(f"  Request {i + 1}: {url.split('/')[-1]} - {status}")
 

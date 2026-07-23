@@ -14,25 +14,22 @@ pip install fastreq
 
 ### Installing with Backend Support
 
-The library supports three HTTP backends. You can install with all backends or choose specific ones:
+The library uses niquests as the default backend (included automatically). You can optionally add httpx:
 
 ```bash
-# Install with all backends (recommended)
-pip install fastreq[all]
+# Default install (includes niquests)
+pip install fastreq
 
-# Install with specific backend
-pip install fastreq[niquests]  # HTTP/2 support
-pip install fastreq[aiohttp]
-pip install fastreq[requests]
+# Add optional httpx backend
+pip install fastreq[httpx]
 ```
 
 ### Backend Priority
 
 The library automatically detects and uses the best available backend in this order:
 
-1. **niquests** - Recommended (HTTP/2 support, streaming, async native)
-2. **aiohttp** - Streaming support, async native
-3. **requests** - Sync-first, streaming via thread wrapper
+1. **niquests** - Default (HTTP/2 support, streaming, async native)
+2. **httpx** - Optional (HTTP/2 support with h2 extra, modern async API)
 
 ## Your First Parallel Request
 

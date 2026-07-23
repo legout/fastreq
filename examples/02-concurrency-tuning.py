@@ -9,6 +9,7 @@ This example demonstrates:
 """
 
 import time
+
 from fastreq import fastreq
 
 
@@ -39,7 +40,8 @@ def main():
         elapsed, success_count = measure_time(concurrency, num_requests)
         results.append((concurrency, elapsed, success_count))
         print(
-            f"Concurrency: {concurrency:2d} | Time: {elapsed:.2f}s | Requests: {success_count}/{num_requests}"
+            f"Concurrency: {concurrency:2d} | Time: {elapsed:.2f}s | "
+            f"Requests: {success_count}/{num_requests}"
         )
 
     print("\n--- Analysis ---")

@@ -32,7 +32,7 @@ client = FastRequests(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `backend` | `str` | `"auto"` | Backend to use: `"auto"`, `"niquests"`, `"aiohttp"`, or `"requests"` |
+| `backend` | `str` | `"auto"` | Backend to use: `"auto"`, `"niquests"`, or `"httpx"` |
 | `concurrency` | `int` | `20` | Maximum concurrent requests |
 | `max_retries` | `int` | `3` | Maximum retry attempts per request |
 | `rate_limit` | `float \| None` | `None` | Requests per second (None = no limit) |
@@ -85,16 +85,16 @@ Set defaults using environment variables:
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `PARALLEL_BACKEND` | `str` | `"auto"` | Default backend selection |
-| `PARALLEL_CONCURRENCY` | `int` | `20` | Default concurrency limit |
-| `PARALLEL_MAX_RETRIES` | `int` | `3` | Default max retries |
-| `PARALLEL_RATE_LIMIT` | `float \| None` | `None` | Default rate limit (requests/sec) |
-| `PARALLEL_RATE_LIMIT_BURST` | `int` | `5` | Rate limit burst size |
-| `PARALLEL_HTTP2` | `bool` | `true` | Enable HTTP/2 |
-| `PARALLEL_RANDOM_USER_AGENT` | `bool` | `true` | Rotate user agents |
-| `PARALLEL_RANDOM_PROXY` | `bool` | `false` | Enable proxy rotation |
-| `PARALLEL_PROXY_ENABLED` | `bool` | `false` | Enable proxy usage |
-| `PARALLEL_FREE_PROXIES` | `bool` | `false` | Enable free proxy fetching |
+| `FASTREQ_BACKEND` | `str` | `"auto"` | Default backend selection |
+| `FASTREQ_CONCURRENCY` | `int` | `20` | Default concurrency limit |
+| `FASTREQ_MAX_RETRIES` | `int` | `3` | Default max retries |
+| `FASTREQ_RATE_LIMIT` | `float \| None` | `None` | Default rate limit (requests/sec) |
+| `FASTREQ_RATE_LIMIT_BURST` | `int` | `5` | Rate limit burst size |
+| `FASTREQ_HTTP2` | `bool` | `true` | Enable HTTP/2 |
+| `FASTREQ_RANDOM_USER_AGENT` | `bool` | `true` | Rotate user agents |
+| `FASTREQ_RANDOM_PROXY` | `bool` | `false` | Enable proxy rotation |
+| `FASTREQ_PROXY_ENABLED` | `bool` | `false` | Enable proxy usage |
+| `FASTREQ_PROXIES` | `str` | | Comma-separated proxy list |
 
 ### Using Environment Variables
 
@@ -102,11 +102,11 @@ Create a `.env` file:
 
 ```bash
 # .env
-PARALLEL_BACKEND=niquests
-PARALLEL_CONCURRENCY=10
-PARALLEL_RATE_LIMIT=5.0
-PARALLEL_RATE_LIMIT_BURST=3
-PARALLEL_DEBUG=false
+FASTREQ_BACKEND=niquests
+FASTREQ_CONCURRENCY=10
+FASTREQ_RATE_LIMIT=5.0
+FASTREQ_RATE_LIMIT_BURST=3
+FASTREQ_DEBUG=false
 ```
 
 Load in your application:
@@ -158,7 +158,6 @@ env_dict = config.to_env()
 | `random_user_agent` | `bool` | `True` |
 | `random_proxy` | `bool` | `False` |
 | `proxy_enabled` | `bool` | `False` |
-| `free_proxies_enabled` | `bool` | `False` |
 
 ---
 
@@ -168,37 +167,27 @@ Choose a backend based on your needs:
 
 ### Auto (default)
 Automatically selects the best available backend:
-1. `niquests` (if installed) - Recommended
-2. `aiohttp` (if installed)
-3. `requests` (if installed)
+1. `niquests` (always available) - Default
 
 ```python
 client = FastRequests(backend="auto")
 ```
 
-### Niquests (Recommended)
+### Niquests (Default)
 Best performance with HTTP/2 support:
 ```python
 client = FastRequests(backend="niquests")
 ```
 
-Install: `pip install niquests`
+Included by default — `pip install fastreq`.
 
-### Aiohttp
-Native async backend:
+### Httpx (Optional)
+Modern async API with HTTP/2 support:
 ```python
-client = FastRequests(backend="aiohttp")
+client = FastRequests(backend="httpx")
 ```
 
-Install: `pip install aiohttp`
-
-### Requests
-Synchronous backend (uses `asyncio` wrapper):
-```python
-client = FastRequests(backend="requests")
-```
-
-Install: `pip install requests`
+Install: `pip install fastreq[httpx]` (HTTP/2 requires `pip install httpx[http2]`)
 
 ---
 
@@ -222,6 +211,6 @@ async with FastRequests(cookies={"session": "abc123"}) as client:
 
 ## See Also
 
-- [API Reference: FastRequests](api/parallelrequests.md)
+- [API Reference: FastRequests](api/fastrequests.md)
 - [API Reference: GlobalConfig](api/globalconfig.md)
 - [How-to: Select a Backend](../how-to-guides/select-backend.md)

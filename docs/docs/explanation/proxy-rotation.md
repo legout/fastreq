@@ -52,7 +52,7 @@ All requests succeed! ✓
 
 ## Proxy Formats Supported
 
-The proxy manager supports multiple proxy formats for flexibility:
+The proxy pool supports multiple proxy formats for flexibility:
 
 ### Format 1: IP:PORT
 
@@ -85,7 +85,7 @@ The proxy manager supports multiple proxy formats for flexibility:
 
 ### Automatic Format Conversion
 
-The proxy manager normalizes formats internally:
+The proxy pool normalizes formats internally:
 
 ```python
 # Input in IP:PORT:USER:PASS format
@@ -97,7 +97,7 @@ The proxy manager normalizes formats internally:
 
 ## Proxy Validation
 
-The proxy manager validates proxies to ensure they're properly formatted before use.
+The proxy pool validates proxies to ensure they're properly formatted before use.
 
 ### Format Validation
 
@@ -141,13 +141,13 @@ def _validate_ip_octets(cls, ip: str) -> bool:
 ### Validation Examples
 
 ```python
-ProxyManager.validate("192.168.1.10:8080")              # ✓ Valid
-ProxyManager.validate("192.168.1.10:8080:admin:pass")    # ✓ Valid
-ProxyManager.validate("http://admin:pass@192.168.1.10:8080")  # ✓ Valid
+_is_valid_proxy("192.168.1.10:8080")              # ✓ Valid
+_is_valid_proxy("192.168.1.10:8080:admin:pass")    # ✓ Valid
+_is_valid_proxy("http://admin:pass@192.168.1.10:8080")  # ✓ Valid
 
-ProxyManager.validate("256.1.1.1:8080")                  # ✗ Invalid octet
-ProxyManager.validate("192.168.1:8080")                  # ✗ Invalid IP format
-ProxyManager.validate("not-a-proxy")                     # ✗ Invalid format
+_is_valid_proxy("256.1.1.1:8080")                  # ✗ Invalid octet
+_is_valid_proxy("192.168.1:8080")                  # ✗ Invalid IP format
+_is_valid_proxy("not-a-proxy")                     # ✗ Invalid format
 ```
 
 ### Loading and Filtering
@@ -155,31 +155,27 @@ ProxyManager.validate("not-a-proxy")                     # ✗ Invalid format
 When proxies are loaded, invalid ones are filtered out:
 
 ```python
-def _load_proxies(self) -> None:
-    proxies = []
-
-    # Load from various sources
-    if self._config.list:
-        proxies.extend(self._config.list)
-
-    # Filter invalid proxies
-    self._proxies = []
+def _load_proxies(self, proxies: Iterable[str]) -> None:
+    seen: set[str] = set()
     for proxy in proxies:
-        if self.validate(proxy):
-            self._proxies.append(proxy)
-        else:
+        if not _is_valid_proxy(proxy):
             logger.debug(f"Filtered invalid proxy format: {proxy}")
+            continue
+        normalized = _normalize_proxy_url(proxy)
+        if normalized not in seen:
+            seen.add(normalized)
+            self._proxies.append(normalized)
 ```
 
 ## Failed Proxy Tracking
 
-The proxy manager tracks failed proxies to avoid repeatedly using problematic ones.
+The proxy pool tracks failed proxies to avoid repeatedly using problematic ones.
 
 ### Failed Proxy State
 
 ```python
-class ProxyManager:
-    def __init__(self, config: ProxyConfig):
+class ProxyPool:
+    def __init__(self, config: ProxyPoolConfig):
         self._proxies: List[str] = []
         self._failed_proxies: Dict[str, float] = {}
         self._lock = asyncio.Lock()
@@ -217,7 +213,7 @@ If a proxy succeeds again, its failed status is cleared.
 ### Getting Next Proxy
 
 ```python
-async def get_next(self) -> Optional[str]:
+async def acquire(self) -> Optional[str]:
     """Get next available proxy."""
     async with self._lock:
         now = time.time()
@@ -243,9 +239,9 @@ async def get_next(self) -> Optional[str]:
 
 ```
 Time 0s: Proxy fails → mark_failed() → _failed_proxies[proxy] = 60s
-Time 10s: get_next() → Proxy excluded from selection
-Time 30s: get_next() → Proxy excluded from selection
-Time 60s: get_next() → Expired, removed from _failed_proxies
+Time 10s: acquire() → Proxy excluded from selection
+Time 30s: acquire() → Proxy excluded from selection
+Time 60s: acquire() → Expired, removed from _failed_proxies
 Time 60s: Proxy available for selection again
 ```
 
@@ -253,33 +249,33 @@ Time 60s: Proxy available for selection again
 
 ```python
 @dataclass
-class ProxyConfig:
-    retry_delay: float = 60.0  # Seconds before retrying failed proxy
+class ProxyPoolConfig:
+    cooldown: float = 60.0  # Seconds before retrying failed proxy
 ```
 
-Default retry delay is 60 seconds. Adjust based on your needs:
+Default cooldown is 60 seconds. Adjust based on your needs:
 
 ```python
-# Short retry delay for quick testing
-ProxyConfig(retry_delay=10.0)
+# Short cooldown for quick testing
+ProxyPoolConfig(cooldown=10.0)
 
-# Long retry delay for production scraping
-ProxyConfig(retry_delay=300.0)  # 5 minutes
+# Long cooldown for production scraping
+ProxyPoolConfig(cooldown=300.0)  # 5 minutes
 ```
 
 ## WebShare.io Integration
 
-The proxy manager integrates with WebShare.io for easy proxy management.
+The proxy pool integrates with WebShare.io for easy proxy management.
 
 ### Loading from WebShare
 
 ```python
 def _load_webshare_proxies(self, url: str) -> List[str]:
     """Load proxies from WebShare.io URL."""
-    import requests
+    import niquests
 
     try:
-        response = requests.get(url, timeout=10)
+        response = niquests.get(url, timeout=10)
         response.raise_for_status()
 
         proxies = []
@@ -298,7 +294,7 @@ def _load_webshare_proxies(self, url: str) -> List[str]:
         return proxies
 
     except Exception as e:
-        raise ProxyValidationError(
+        raise ProxyError(
             f"Failed to load webshare proxies: {e}"
         ) from e
 ```
@@ -306,47 +302,46 @@ def _load_webshare_proxies(self, url: str) -> List[str]:
 ### Using WebShare Proxies
 
 ```python
-from fastreq.utils.proxies import ProxyManager, ProxyConfig
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
 
-config = ProxyConfig(
-    enabled=True,
-    webshare_url="https://your-webshare-proxy-list-url",
-    retry_delay=60.0,
+config = ProxyPoolConfig(
+    proxies=["http://user:pass@proxy1:8080", "http://user:pass@proxy2:8080"],
+    cooldown=60.0,
 )
 
-manager = ProxyManager(config)
-proxy = await manager.get_next()
+pool = ProxyPool(config=config)
+proxy = await pool.acquire()
 ```
 
 ### Environment Variable Loading
 
-Proxies can also be loaded from the `PROXIES` environment variable:
+Proxies can also be loaded from the `FASTREQ_PROXIES` environment variable:
 
 ```python
 # Set environment variable
-export PROXIES="192.168.1.10:8080,192.168.1.11:8080"
+export FASTREQ_PROXIES="192.168.1.10:8080,192.168.1.11:8080"
 
 # Automatically loaded
-manager = ProxyManager(config)
+pool = ProxyPool.from_env()
 ```
 
-## Proxy Manager Internals
+## Proxy Pool Internals
 
 ### Thread Safety
 
 All proxy operations are protected by an async lock:
 
 ```python
-async def get_next(self) -> Optional[str]:
+async def acquire(self) -> Optional[str]:
     async with self._lock:  # Thread-safe
         # Modify shared state
 ```
 
-This ensures multiple concurrent tasks can safely access the proxy manager.
+This ensures multiple concurrent tasks can safely access the proxy pool.
 
 ### Proxy Statistics
 
-The proxy manager provides statistics:
+The proxy pool provides statistics:
 
 ```python
 def count(self) -> int:
@@ -382,17 +377,16 @@ Random selection helps avoid:
 
 ```python
 from fastreq import FastRequests
-from fastreq.utils.proxies import ProxyManager, ProxyConfig
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
 
 # Configure proxy rotation
-proxy_config = ProxyConfig(
-    enabled=True,
-    list=[
+proxy_config = ProxyPoolConfig(
+    proxies=[
         "192.168.1.10:8080",
         "192.168.1.11:8080:admin:pass",
         "http://user:pass@192.168.1.12:8080",
     ],
-    retry_delay=60.0,
+    cooldown=60.0,
 )
 
 # Create client with proxy rotation
@@ -405,27 +399,26 @@ client = FastRequests(
 ### WebShare Integration
 
 ```python
-proxy_config = ProxyConfig(
-    enabled=True,
-    webshare_url="https://your-api.webshare.io/api/v2/proxy",
-    retry_delay=120.0,  # 2 minutes
+proxy_config = ProxyPoolConfig(
+    proxies=["http://user:pass@proxy1:8080", "http://user:pass@proxy2:8080"],
+    cooldown=120.0,  # 2 minutes
 )
 
-manager = ProxyManager(proxy_config)
-print(f"Loaded {manager.count()} proxies")
+pool = ProxyPool(config=proxy_config)
+print(f"Loaded {pool.count()} proxies")
 ```
 
 ### Monitoring Proxy Health
 
 ```python
-manager = ProxyManager(proxy_config)
+pool = ProxyPool(config=proxy_config)
 
 # Check proxy status
-print(f"Total proxies: {manager.count()}")
-print(f"Available proxies: {manager.count_available()}")
+print(f"Total proxies: {pool.count()}")
+print(f"Available proxies: {pool.count_available()}")
 
 # Get next available proxy
-proxy = await manager.get_next()
+proxy = await pool.acquire()
 if proxy:
     print(f"Using proxy: {proxy}")
 else:
@@ -440,14 +433,14 @@ Don't rely on a single proxy:
 
 ```python
 # Good: Multiple proxies for rotation
-ProxyConfig(list=[
+ProxyPoolConfig(proxies=[
     "192.168.1.10:8080",
     "192.168.1.11:8080",
     "192.168.1.12:8080",
 ])
 
 # Bad: Single proxy (no rotation benefit)
-ProxyConfig(list=["192.168.1.10:8080"])
+ProxyPoolConfig(proxies=["192.168.1.10:8080"])
 ```
 
 ### 2. Handle Proxy Exhaustion
@@ -455,7 +448,7 @@ ProxyConfig(list=["192.168.1.10:8080"])
 When all proxies fail, the request will fail without a proxy:
 
 ```python
-proxy = await manager.get_next()
+proxy = await pool.acquire()
 if not proxy:
     logger.error("All proxies failed!")
     # Handle gracefully: wait, alert, etc.
@@ -466,27 +459,27 @@ if not proxy:
 Track proxy health and rotation:
 
 ```python
-logger.info(f"Proxies: {manager.count_available()}/{manager.count()}")
+logger.info(f"Proxies: {pool.count_available()}/{pool.count()}")
 
-if manager.count_available() < manager.count() * 0.5:
+if pool.count_available() < pool.count() * 0.5:
     logger.warning("More than 50% of proxies failed!")
 ```
 
-### 4. Use Appropriate Retry Delays
+### 4. Use Appropriate Cooldowns
 
-Adjust retry delay based on proxy quality:
+Adjust cooldown based on proxy quality:
 
 ```python
-# High-quality proxies: Short retry delay
-ProxyConfig(retry_delay=30.0)
+# High-quality proxies: Short cooldown
+ProxyPoolConfig(cooldown=30.0)
 
-# Low-quality proxies: Long retry delay
-ProxyConfig(retry_delay=300.0)
+# Low-quality proxies: Long cooldown
+ProxyPoolConfig(cooldown=300.0)
 ```
 
 ### 5. Validate Proxies Before Use
 
-The manager validates format, but consider testing connectivity:
+The pool validates format, but consider testing connectivity:
 
 ```python
 # Format validation is automatic
@@ -501,13 +494,13 @@ The manager validates format, but consider testing connectivity:
 
 **Possible Causes**:
 1. All proxies marked as failed
-2. Retry delay too long
+2. Cooldown too long
 3. Proxies genuinely offline
 
 **Solutions**:
 ```python
-# Reduce retry delay
-ProxyConfig(retry_delay=30.0)  # Instead of 60.0
+# Reduce cooldown
+ProxyPoolConfig(cooldown=30.0)  # Instead of 60.0
 
 # Check proxy connectivity manually
 # Consider using a proxy health check service
@@ -519,10 +512,10 @@ ProxyConfig(retry_delay=30.0)  # Instead of 60.0
 
 **Solution**: Check format:
 ```python
-from fastreq.utils.proxies import ProxyManager
+from fastreq.utils.proxies import _is_valid_proxy
 
-ProxyManager.validate("192.168.1.10:8080")  # Should return True
-ProxyManager.validate("invalid")             # Should return False
+_is_valid_proxy("192.168.1.10:8080")  # Should return True
+_is_valid_proxy("invalid")             # Should return False
 ```
 
 ### Proxy Not Working
@@ -536,11 +529,11 @@ ProxyManager.validate("invalid")             # Should return False
 
 **Solution**: Test proxy manually:
 ```python
-import requests
+import niquests
 
 proxy = "http://user:pass@192.168.1.10:8080"
 try:
-    response = requests.get(
+    response = niquests.get(
         "https://httpbin.org/ip",
         proxies={"http": proxy, "https": proxy},
         timeout=10

@@ -11,8 +11,10 @@ Note: This requires valid proxy settings in .env file
 """
 
 import os
+
 from dotenv import load_dotenv
-from fastreq import fastreq, ProxyError
+
+from fastreq import ProxyError, fastreq
 
 
 def main():
@@ -77,7 +79,7 @@ def main():
 
     print("\n--- Proxy Configuration ---")
     print("• Single proxy: Use proxy parameter")
-    print("• Multiple proxies: Use GlobalConfig or ProxyManager")
+    print("• Multiple proxies: Use the proxies parameter or ProxyPool")
     print("• Format: http://user:pass@host:port")
     print("• Test proxy connectivity before using in production")
 

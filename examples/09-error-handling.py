@@ -9,11 +9,10 @@ This example demonstrates:
 """
 
 from fastreq import (
-    fastreq,
-    PartialFailureError,
     BackendError,
+    PartialFailureError,
     RetryExhaustedError,
-    ProxyError,
+    fastreq,
 )
 
 
@@ -36,9 +35,9 @@ def main():
             verbose=False,
         )
     except PartialFailureError as e:
-        print(f"PartialFailureError caught!")
+        print("PartialFailureError caught!")
         print(f"  Failed: {len(e.get_failed_urls())}/{e.total} requests")
-        print(f"  Failed URLs:")
+        print("  Failed URLs:")
         for url in e.get_failed_urls():
             error = e.failures[url].error
             print(f"    - {url}: {error}")
@@ -55,7 +54,7 @@ def main():
     success_count = sum(1 for r in results if r is not None)
     print(f"Results: {success_count} success, {len(results) - success_count} failures")
 
-    for i, (url, result) in enumerate(zip(urls, results)):
+    for _i, (url, result) in enumerate(zip(urls, results, strict=False)):
         status = "✓ Success" if result is not None else "✗ None (failed)"
         print(f"  {url}: {status}")
 
@@ -67,7 +66,7 @@ def main():
         ("Invalid Domain", ["https://thisdomaindoesnotexist12345.com"], True),
     ]
 
-    for name, urls, expect_error in test_cases:
+    for name, urls, _expect_error in test_cases:
         print(f"\nTest: {name}")
         try:
             results = fastreq(

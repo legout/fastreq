@@ -46,7 +46,7 @@ from fastreq.backends import get_available_backends
 available = get_available_backends()
 print(f"Available backends: {available}")
 
-# Expected output: ['niquests', 'aiohttp', 'requests']
+# Expected output: ['niquests', 'httpx'] (httpx only if installed)
 ```
 
 ## Testing Backend Connectivity
@@ -70,7 +70,7 @@ def test_backend(backend_name):
         print(f"{backend_name}: FAILED - {e}")
         return False
 
-for backend in ["niquests", "aiohttp", "requests"]:
+for backend in ["niquests", "httpx"]:
     test_backend(backend)
 ```
 
@@ -143,18 +143,16 @@ results = fastreq(
 
 **Error:** `BackendError: No suitable backend found`
 
-**Solution:** Install backend dependencies:
+**Solution:** This should not happen since niquests is a required dependency. If it does, reinstall fastreq:
 
 ```bash
-pip install fastreq[all]
+pip install --force-reinstall fastreq
 ```
 
-Or install specific backend:
+For optional httpx backend:
 
 ```bash
-pip install fastreq[niquests]
-pip install fastreq[aiohttp]
-pip install fastreq[requests]
+pip install fastreq[httpx]
 ```
 
 ### Issue: Requests Timing Out
@@ -173,8 +171,8 @@ results = fastreq(
 )
 
 # Test network connectivity
-import requests
-requests.get("https://httpbin.org/get", timeout=5)
+import niquests
+niquests.get("https://httpbin.org/get", timeout=5)
 ```
 
 ### Issue: Rate Limit Exceeded
@@ -202,11 +200,11 @@ results = fastreq(
 **Solution:** Test proxy configuration:
 
 ```python
-import requests
+import niquests
 
 # Test proxy manually
 try:
-    response = requests.get(
+    response = niquests.get(
         "https://httpbin.org/ip",
         proxies={"http": "http://proxy1:8080"},
         timeout=10,
@@ -220,13 +218,10 @@ except Exception as e:
 
 **Error:** HTTP/2 not available
 
-**Solution:** Ensure niquests is installed:
+**Solution:** Ensure niquests is installed (it's the default):
 
 ```bash
-# Install niquests
-pip install fastreq[niquests]
-
-# Verify
+# Verify niquests
 python -c "import niquests; print('niquests installed')"
 ```
 
@@ -366,8 +361,8 @@ Use this checklist when debugging:
 
 2. **Network Working?**
    ```python
-   import requests
-   requests.get("https://httpbin.org/get", timeout=5)
+   import niquests
+   niquests.get("https://httpbin.org/get", timeout=5)
    ```
 
 3. **URLs Valid?**
@@ -380,8 +375,8 @@ Use this checklist when debugging:
 
 4. **Proxy Working?**
    ```python
-   import requests
-   requests.get("https://httpbin.org/ip", proxies={"http": "http://proxy:8080"})
+   import niquests
+   niquests.get("https://httpbin.org/ip", proxies={"http": "http://proxy:8080"})
    ```
 
 5. **Rate Limits Correct?**
@@ -402,9 +397,10 @@ Use this checklist when debugging:
    fastreq(urls=["https://httpbin.org/get"])
    ```
 
-3. **Check Dependencies**: Verify all backends are installed
+3. **Check Dependencies**: Verify backends are installed
    ```python
-   pip install fastreq[all]
+   pip install fastreq  # niquests included by default
+   pip install fastreq[httpx]  # optional httpx backend
    ```
 
 4. **Monitor Memory**: Use streaming for large responses

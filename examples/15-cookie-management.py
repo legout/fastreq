@@ -9,6 +9,7 @@ This example demonstrates:
 """
 
 import asyncio
+
 from fastreq import FastRequests
 
 
@@ -40,7 +41,7 @@ async def main():
         )
 
         if result:
-            print(f"Server received cookies:")
+            print("Server received cookies:")
             for name, value in result.get("cookies", {}).items():
                 print(f"  {name}: {value}")
 

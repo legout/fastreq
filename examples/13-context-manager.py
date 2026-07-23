@@ -9,6 +9,7 @@ This example demonstrates:
 """
 
 import asyncio
+
 from fastreq import FastRequests
 
 

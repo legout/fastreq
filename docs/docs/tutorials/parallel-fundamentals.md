@@ -12,11 +12,12 @@ Concurrency means performing multiple operations at the same time. In the contex
 
 ```python
 import time
+import niquests
 
 # Sequential requests (slow)
 start = time.time()
 for i in range(5):
-    requests.get("https://httpbin.org/delay/1")
+    niquests.get("https://httpbin.org/delay/1")
 print(f"Sequential: {time.time() - start:.1f}s")  # ~5 seconds
 
 # Parallel requests (fast)
@@ -109,21 +110,23 @@ results = fastreq(
 # Force specific backend
 results = fastreq(
     urls=["https://httpbin.org/get"],
-    backend="niquests",  # or "aiohttp", "requests"
+    backend="niquests",  # or "httpx"
 )
 ```
 
 ### Backend Comparison
 
-| Feature        | niquests | aiohttp | requests |
-|----------------|---------|---------|----------|
-| HTTP/2 Support | ✅ Yes  | ❌ No   | ❌ No    |
-| Streaming     | ✅ Yes  | ✅ Yes  | ✅ Yes   |
-| Async Native   | ✅ Yes  | ✅ Yes  | ❌ No    |
-| Sync Native    | ✅ Yes  | ❌ No   | ✅ Yes   |
-| Ecosystem     | New     | Mature  | Mature   |
+| Feature        | niquests | httpx |
+|----------------|----------|-------|
+| HTTP/2 Support | ✅ Yes   | ✅ Yes* |
+| Streaming     | ✅ Yes   | ✅ Yes |
+| Async Native   | ✅ Yes   | ✅ Yes |
+| Sync Native    | ✅ Yes   | ❌ No  |
+| Ecosystem     | New      | Mature |
 
-**Recommendation**: Use `niquests` for HTTP/2 support and best performance.
+*HTTP/2 requires `pip install httpx[http2]` (installs the `h2` extra)
+
+**Recommendation**: Use `niquests` (default) for HTTP/2 support and best performance.
 
 ## Rate Limiting
 
@@ -178,7 +181,7 @@ Key concepts:
 - **Concurrency**: Make multiple requests simultaneously
 - **Async/Await**: Use `asyncio` for efficient parallel execution
 - **Concurrency Limit**: Control how many requests run at once
-- **Backends**: Choose niquests, aiohttp, or requests
+- **Backends**: Choose niquests (default) or httpx
 - **Rate Limiting**: Control request rate to avoid rate limits
 - **Retry Logic**: Automatically retry failed requests
 

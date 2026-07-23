@@ -1,4 +1,7 @@
-import os
+"""Tests for GlobalConfig with FASTREQ_ prefix and no free-proxy fields."""
+
+from __future__ import annotations
+
 import tempfile
 from pathlib import Path
 
@@ -18,20 +21,16 @@ class TestGlobalConfigDefaults:
         assert config.http2_enabled is True
         assert config.random_user_agent is True
         assert config.random_proxy is False
-        assert config.proxy_enabled is False
-        assert config.free_proxies_enabled is False
 
 
 class TestLoadFromEnv:
     def test_load_from_env_with_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("PARALLEL_BACKEND", raising=False)
-        monkeypatch.delenv("PARALLEL_CONCURRENCY", raising=False)
-        monkeypatch.delenv("PARALLEL_MAX_RETRIES", raising=False)
-        monkeypatch.delenv("PARALLEL_HTTP2", raising=False)
-        monkeypatch.delenv("PARALLEL_RANDOM_USER_AGENT", raising=False)
-        monkeypatch.delenv("PARALLEL_RANDOM_PROXY", raising=False)
-        monkeypatch.delenv("PARALLEL_PROXY_ENABLED", raising=False)
-        monkeypatch.delenv("PARALLEL_FREE_PROXIES", raising=False)
+        monkeypatch.delenv("FASTREQ_BACKEND", raising=False)
+        monkeypatch.delenv("FASTREQ_CONCURRENCY", raising=False)
+        monkeypatch.delenv("FASTREQ_MAX_RETRIES", raising=False)
+        monkeypatch.delenv("FASTREQ_HTTP2", raising=False)
+        monkeypatch.delenv("FASTREQ_RANDOM_USER_AGENT", raising=False)
+        monkeypatch.delenv("FASTREQ_RANDOM_PROXY", raising=False)
 
         config = GlobalConfig.load_from_env()
 
@@ -41,18 +40,14 @@ class TestLoadFromEnv:
         assert config.http2_enabled is True
         assert config.random_user_agent is True
         assert config.random_proxy is False
-        assert config.proxy_enabled is False
-        assert config.free_proxies_enabled is False
 
     def test_load_from_env_custom_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("PARALLEL_BACKEND", "niquests")
-        monkeypatch.setenv("PARALLEL_CONCURRENCY", "50")
-        monkeypatch.setenv("PARALLEL_MAX_RETRIES", "5")
-        monkeypatch.setenv("PARALLEL_HTTP2", "false")
-        monkeypatch.setenv("PARALLEL_RANDOM_USER_AGENT", "false")
-        monkeypatch.setenv("PARALLEL_RANDOM_PROXY", "true")
-        monkeypatch.setenv("PARALLEL_PROXY_ENABLED", "true")
-        monkeypatch.setenv("PARALLEL_FREE_PROXIES", "true")
+        monkeypatch.setenv("FASTREQ_BACKEND", "niquests")
+        monkeypatch.setenv("FASTREQ_CONCURRENCY", "50")
+        monkeypatch.setenv("FASTREQ_MAX_RETRIES", "5")
+        monkeypatch.setenv("FASTREQ_HTTP2", "false")
+        monkeypatch.setenv("FASTREQ_RANDOM_USER_AGENT", "false")
+        monkeypatch.setenv("FASTREQ_RANDOM_PROXY", "true")
 
         config = GlobalConfig.load_from_env()
 
@@ -62,12 +57,10 @@ class TestLoadFromEnv:
         assert config.http2_enabled is False
         assert config.random_user_agent is False
         assert config.random_proxy is True
-        assert config.proxy_enabled is True
-        assert config.free_proxies_enabled is True
 
     def test_load_from_env_rate_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("PARALLEL_RATE_LIMIT", "10.5")
-        monkeypatch.setenv("PARALLEL_RATE_LIMIT_BURST", "10")
+        monkeypatch.setenv("FASTREQ_RATE_LIMIT", "10.5")
+        monkeypatch.setenv("FASTREQ_RATE_LIMIT_BURST", "10")
 
         config = GlobalConfig.load_from_env()
 
@@ -80,16 +73,15 @@ class TestToEnv:
         config = GlobalConfig()
         env = config.to_env()
 
-        assert "PARALLEL_BACKEND" in env
-        assert "PARALLEL_CONCURRENCY" in env
-        assert "PARALLEL_MAX_RETRIES" in env
-        assert "PARALLEL_RATE_LIMIT" in env
-        assert "PARALLEL_RATE_LIMIT_BURST" in env
-        assert "PARALLEL_HTTP2" in env
-        assert "PARALLEL_RANDOM_USER_AGENT" in env
-        assert "PARALLEL_RANDOM_PROXY" in env
-        assert "PARALLEL_PROXY_ENABLED" in env
-        assert "PARALLEL_FREE_PROXIES" in env
+        assert "FASTREQ_BACKEND" in env
+        assert "FASTREQ_CONCURRENCY" in env
+        assert "FASTREQ_MAX_RETRIES" in env
+        assert "FASTREQ_RATE_LIMIT" in env
+        assert "FASTREQ_RATE_LIMIT_BURST" in env
+        assert "FASTREQ_HTTP2" in env
+        assert "FASTREQ_RANDOM_USER_AGENT" in env
+        assert "FASTREQ_RANDOM_PROXY" in env
+        assert "FASTREQ_PROXIES" in env
 
     def test_to_env_custom_values(self) -> None:
         config = GlobalConfig(
@@ -100,26 +92,24 @@ class TestToEnv:
         )
         env = config.to_env()
 
-        assert env["PARALLEL_BACKEND"] == "niquests"
-        assert env["PARALLEL_CONCURRENCY"] == "50"
-        assert env["PARALLEL_HTTP2"] == "false"
-        assert env["PARALLEL_RANDOM_USER_AGENT"] == "false"
+        assert env["FASTREQ_BACKEND"] == "niquests"
+        assert env["FASTREQ_CONCURRENCY"] == "50"
+        assert env["FASTREQ_HTTP2"] == "false"
+        assert env["FASTREQ_RANDOM_USER_AGENT"] == "false"
 
     def test_to_env_bool_values_are_lowercase(self) -> None:
         config = GlobalConfig()
         env = config.to_env()
 
-        assert env["PARALLEL_HTTP2"] == "true"
-        assert env["PARALLEL_RANDOM_USER_AGENT"] == "true"
-        assert env["PARALLEL_RANDOM_PROXY"] == "false"
-        assert env["PARALLEL_PROXY_ENABLED"] == "false"
-        assert env["PARALLEL_FREE_PROXIES"] == "false"
+        assert env["FASTREQ_HTTP2"] == "true"
+        assert env["FASTREQ_RANDOM_USER_AGENT"] == "true"
+        assert env["FASTREQ_RANDOM_PROXY"] == "false"
 
     def test_to_env_rate_limit_empty_when_none(self) -> None:
         config = GlobalConfig()
         env = config.to_env()
 
-        assert env["PARALLEL_RATE_LIMIT"] == ""
+        assert env["FASTREQ_RATE_LIMIT"] == ""
 
 
 class TestSaveToEnv:
@@ -131,8 +121,8 @@ class TestSaveToEnv:
         try:
             config.save_to_env(path)
             content = path.read_text()
-            assert "PARALLEL_BACKEND=niquests" in content
-            assert "PARALLEL_CONCURRENCY=50" in content
+            assert "FASTREQ_BACKEND=niquests" in content
+            assert "FASTREQ_CONCURRENCY=50" in content
         finally:
             path.unlink()
 
@@ -145,14 +135,6 @@ class TestSaveToEnv:
             config.save_to_env(path)
             content = path.read_text()
             lines = content.strip().split("\n")
-            assert not any(line.startswith("PARALLEL_RATE_LIMIT=") for line in lines)
+            assert not any(line.startswith("FASTREQ_RATE_LIMIT=") for line in lines)
         finally:
             path.unlink()
-
-    def test_save_to_env_with_path_string(self) -> None:
-        config = GlobalConfig(backend="aiohttp")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "test.env")
-            config.save_to_env(path)
-            content = Path(path).read_text()
-            assert "PARALLEL_BACKEND=aiohttp" in content

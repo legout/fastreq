@@ -1,24 +1,35 @@
-from .retry import RetryConfig, RetryStrategy
-from .rate_limiter import RateLimitConfig, TokenBucket, AsyncRateLimiter
-from .validators import validate_url, validate_proxy, validate_headers, normalize_urls
-from .proxies import ProxyConfig, ProxyManager, ProxyValidationError
 from .headers import HeaderManager
 from .logging import configure_logging, reset_logging
+from .proxies import (
+    ProxyError as ProxyPoolError,
+)
+from .proxies import (
+    ProxyPool,
+    ProxyPoolConfig,
+    ProxySelection,
+    load_webshare_from_file,
+)
+from .rate_limiter import AsyncRateLimiter, RateLimitConfig, TokenBucket
+from .retry import DEFAULT_RETRYABLE_STATUSES, RetryConfig, RetryStrategy
+from .validators import normalize_urls, validate_headers, validate_proxy, validate_url
 
 __all__ = [
+    "DEFAULT_RETRYABLE_STATUSES",
+    "AsyncRateLimiter",
+    "HeaderManager",
+    "ProxyPool",
+    "ProxyPoolConfig",
+    "ProxyPoolError",
+    "ProxySelection",
+    "RateLimitConfig",
     "RetryConfig",
     "RetryStrategy",
-    "RateLimitConfig",
     "TokenBucket",
-    "AsyncRateLimiter",
-    "validate_url",
-    "validate_proxy",
-    "validate_headers",
-    "normalize_urls",
-    "ProxyConfig",
-    "ProxyManager",
-    "ProxyValidationError",
-    "HeaderManager",
     "configure_logging",
+    "load_webshare_from_file",
+    "normalize_urls",
     "reset_logging",
+    "validate_headers",
+    "validate_proxy",
+    "validate_url",
 ]

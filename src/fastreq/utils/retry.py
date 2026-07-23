@@ -1,10 +1,35 @@
+"""Retry policy with typed classification and exponential backoff.
+
+Retries only transient transport failures (BackendError) and configured
+retryable status codes (429, 500, 502, 503, 504). Honors Retry-After
+header when parseable.
+"""
+
+from __future__ import annotations
+
 import asyncio
 import random
-from dataclasses import dataclass
-from typing import Any, Callable, Coroutine
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 
-from ..exceptions import RetryExhaustedError
 from loguru import logger
+
+from ..exceptions import (
+    BackendError,
+    ConfigurationError,
+    RetryExhaustedError,
+    RetryableResponse,
+    ValidationError,
+)
+
+# Status codes that are considered retryable
+DEFAULT_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+# Exception types that should never be retried
+NEVER_RETRY: tuple[type[Exception], ...] = (
+    ConfigurationError,
+    ValidationError,
+)
 
 
 @dataclass
@@ -15,41 +40,39 @@ class RetryConfig:
         max_retries: Maximum number of retry attempts
         backoff_multiplier: Base multiplier for exponential backoff (seconds)
         jitter: Jitter amount as fraction of backoff (0.1 = 10%)
-        retry_on: Exception types to retry (None = retry all)
-        dont_retry_on: Exception types to never retry
+        retryable_statuses: HTTP status codes to retry (default: 429, 500, 502, 503, 504)
+        max_delay: Maximum delay between retries (seconds, default 60)
     """
 
     max_retries: int = 3
     backoff_multiplier: float = 1.0
     jitter: float = 0.1
-    retry_on: set[type[Exception]] | None = None
-    dont_retry_on: set[type[Exception]] | None = None
+    retryable_statuses: frozenset[int] = field(default_factory=lambda: DEFAULT_RETRYABLE_STATUSES)
+    max_delay: float = 60.0
 
 
 class RetryStrategy:
-    """Retry strategy with exponential backoff and jitter.
+    """Retry strategy with exponential backoff, jitter, and Retry-After support.
 
-    Implements exponential backoff with configurable jitter for
-    resilient request handling.
+    Classifies failures as retryable or non-retryable:
+    - BackendError (transport failure): retryable
+    - RetryableResponse (429/5xx with status): retryable, honors Retry-After
+    - ConfigurationError, ValidationError: never retry
+    - Other exceptions: never retry
 
     Example:
-        >>> from fastreq.utils.retry import RetryStrategy, RetryConfig
-        >>> config = RetryConfig(max_retries=3, backoff_multiplier=1.0, jitter=0.1)
+        >>> config = RetryConfig(max_retries=3, backoff_multiplier=1.0)
         >>> strategy = RetryStrategy(config)
-        >>> result = await strategy.execute(some_async_function)
-
-    Args:
-        config: Retry configuration (uses defaults if None)
+        >>> result = await strategy.execute(make_request_func)
     """
 
     def __init__(self, config: RetryConfig | None = None) -> None:
         self.config = config or RetryConfig()
 
     def _calculate_delay(self, attempt: int) -> float:
-        """Calculate delay for retry attempt.
+        """Calculate delay for retry attempt using exponential backoff with jitter.
 
-        Uses exponential backoff with jitter:
-        delay = backoff_multiplier * (2^attempt) ± (jitter * delay)
+        delay = min(max_delay, backoff_multiplier * (2^attempt) ± jitter)
 
         Args:
             attempt: Retry attempt number (0-indexed)
@@ -60,58 +83,66 @@ class RetryStrategy:
         base_delay = self.config.backoff_multiplier * (2**attempt)
         jitter_amount = self.config.jitter * base_delay
         jittered_delay = base_delay + random.uniform(-jitter_amount, jitter_amount)
-        return float(max(0, jittered_delay))
+        return float(max(0, min(self.config.max_delay, jittered_delay)))
 
-    def _should_retry(self, error: Exception) -> bool:
-        """Determine if error should trigger a retry.
+    def _classify(self, error: Exception) -> tuple[bool, float | None]:
+        """Classify an error and return (should_retry, retry_after_delay).
 
         Args:
             error: Exception that occurred
 
         Returns:
-            True if should retry, False otherwise
+            Tuple of (should_retry, retry_after_seconds or None)
         """
-        if self.config.dont_retry_on and isinstance(error, tuple(self.config.dont_retry_on)):
-            return False
-        if self.config.retry_on:
-            return isinstance(error, tuple(self.config.retry_on))
-        return True
+        # Never retry configuration/validation errors
+        if isinstance(error, NEVER_RETRY):
+            return False, None
+
+        # RetryableResponse carries a status code and optional Retry-After
+        if isinstance(error, RetryableResponse):
+            return True, error.retry_after
+
+        # BackendError (transport failures) are retryable
+        if isinstance(error, BackendError):
+            return True, None
+
+        # Unknown exceptions are not retried
+        return False, None
 
     async def execute(
         self,
-        func: Callable[..., Coroutine[Any, Any, Any]],
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """Execute function with retry logic.
+        func: Callable[..., Awaitable[object]],
+    ) -> object:
+        """Execute an async function with retry logic.
 
         Args:
-            func: Async function to execute
-            *args: Positional arguments for func
-            **kwargs: Keyword arguments for func
+            func: Async function to execute (no arguments)
 
         Returns:
             Function result
 
         Raises:
             RetryExhaustedError: If all retry attempts exhausted
-            Exception: If error is not retryable
+            Exception: Original error if non-retryable
         """
         last_error: Exception | None = None
 
         for attempt in range(self.config.max_retries + 1):
             try:
-                return await func(*args, **kwargs)
+                return await func()
             except Exception as e:
                 last_error = e
+                should_retry, retry_after = self._classify(e)
 
-                if not self._should_retry(e):
+                if not should_retry:
                     raise
 
                 if attempt < self.config.max_retries:
-                    delay = self._calculate_delay(attempt)
+                    # Use Retry-After if available, otherwise exponential backoff
+                    delay = retry_after if retry_after is not None else self._calculate_delay(attempt)
                     logger.debug(
-                        f"Retry attempt {attempt + 1}/{self.config.max_retries}: {e}, waiting {delay:.2f}s"
+                        f"Retry attempt {attempt + 1}/{self.config.max_retries}: {e}, "
+                        f"waiting {delay:.2f}s"
                     )
                     await asyncio.sleep(delay)
 

@@ -1,3 +1,41 @@
+"""fastreq — High-performance async HTTP client built on niquests and httpx.
+
+Basic usage:
+
+    >>> from fastreq import fastreq
+    >>> results = fastreq(urls=["https://api.github.com/repos/python/cpython"])
+
+Async usage:
+
+    >>> import asyncio
+    >>> from fastreq import fastreq_async
+    >>> async def main():
+    ...     return await fastreq_async(urls=["https://httpbin.org/get"])
+    >>> asyncio.run(main())
+
+Features:
+    - niquests (default) and httpx (optional) transports
+    - HTTP/2 support
+    - Exponential backoff with jitter
+    - Token bucket rate limiting (rate token acquired before concurrency slot)
+    - Explicit proxy pools with health tracking and cooldown
+    - User-agent rotation
+    - Session cookie management
+    - Flexible response parsing (JSON, text, content, response, stream)
+    - Custom parse functions
+    - Keyed response mapping
+    - Graceful failure handling
+"""
+
+from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig, TransportKey
+from fastreq.client import (
+    FastRequests,
+    RequestOptions,
+    ReturnType,
+    fastreq,
+    fastreq_async,
+)
+from fastreq.config import GlobalConfig
 from fastreq.exceptions import (
     BackendError,
     ConfigurationError,
@@ -7,19 +45,11 @@ from fastreq.exceptions import (
     ProxyError,
     RateLimitExceededError,
     RetryExhaustedError,
+    RetryableResponse,
     ValidationError,
 )
-from fastreq.config import GlobalConfig
-from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig
-from fastreq.client import (
-    FastRequests,
-    RequestOptions,
-    ReturnType,
-    fastreq,
-    fastreq_async,
-)
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 __all__ = [
     "__version__",
@@ -32,10 +62,12 @@ __all__ = [
     "ConfigurationError",
     "PartialFailureError",
     "FailureDetails",
+    "RetryableResponse",
     "GlobalConfig",
     "Backend",
     "RequestConfig",
     "NormalizedResponse",
+    "TransportKey",
     "FastRequests",
     "RequestOptions",
     "ReturnType",
@@ -45,52 +77,6 @@ __all__ = [
     "ParallelRequests",
 ]
 
-
-__doc__ = """fastreq - High-performance parallel HTTP client
-
-A Python library for executing parallel HTTP requests with built-in retry logic,
-proxy rotation, rate limiting, and support for multiple HTTP backends (niquests,
-aiohttp, and requests).
-
-Basic usage:
-
-    >>> from fastreq import fastreq
-    >>> results = fastreq(
-    ...     urls=["https://api.github.com/repos/python/cpython"],
-    ...     concurrency=3,
-    ... )
-    >>> print(results[0]['name'])
-    'cpython'
-
-Async usage:
-
-    >>> import asyncio
-    >>> from fastreq import fastreq_async
-    >>> async def main():
-    ...     results = await fastreq_async(
-    ...         urls=["https://httpbin.org/get"],
-    ...     )
-    ...     return results
-    >>> asyncio.run(main())
-
-Features:
-    - Automatic backend detection (niquests → aiohttp → requests)
-    - HTTP/2 support (niquests backend)
-    - Exponential backoff with jitter
-    - Token bucket rate limiting
-    - Proxy rotation with validation
-    - User-agent rotation
-    - Session cookie management
-    - Flexible response parsing (JSON, text, content, response, stream)
-    - Custom parse functions
-    - Keyed response mapping
-    - Graceful failure handling
-
-Backends:
-    - niquests: HTTP/2 support, streaming, async native (recommended)
-    - aiohttp: Streaming support, async native
-    - requests: Sync-first, streaming via thread wrapper
-"""
-
+# Backwards-compatibility aliases
 ParallelRequestsError = FastRequestsError
 ParallelRequests = FastRequests

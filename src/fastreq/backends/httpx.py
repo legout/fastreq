@@ -1,25 +1,89 @@
+"""httpx transport — the optional alternative backend for fastreq.
+
+Implements the Backend contract using httpx.AsyncClient with proxy-scoped
+client caching (HTTPX 0.28+ configures proxies at client construction time),
+real chunked streaming, TLS configuration, and redirect support.
+"""
+
+from __future__ import annotations
+
 from typing import Any
+from collections.abc import Callable
 
 import httpx
 
-from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig
+from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig, TransportKey
 from fastreq.exceptions import BackendError
 
 
 class HttpxBackend(Backend):
-    def __init__(self, http2_enabled: bool = True) -> None:
-        super().__init__(http2_enabled=http2_enabled)
-        self._client: httpx.AsyncClient | None = None
-        self._h2_available: bool = False
-        self._verify_ssl: bool = True
+    """httpx-based transport with proxy-scoped clients.
+
+    Clients are cached by TransportKey because HTTPX 0.28+ configures proxies
+    at client construction time. Each unique (proxy, verify_ssl, follow_redirects, http2)
+    combination gets its own AsyncClient for cookie isolation.
+
+    HTTP/2 is supported when the h2 extra is installed.
+    """
+
+    def __init__(self) -> None:
+        self._clients: dict[TransportKey, httpx.AsyncClient] = {}
+        self._h2_available: bool | None = None
 
     @property
     def name(self) -> str:
         return "httpx"
 
-    async def request(self, config: RequestConfig) -> NormalizedResponse:
-        if self._client is None:
-            raise RuntimeError("Backend not initialized. Use async with HttpxBackend() as backend:")
+    def _check_h2_available(self) -> bool:
+        """Check whether the h2 package is available for HTTP/2 support."""
+        if self._h2_available is not None:
+            return self._h2_available
+        try:
+            import h2  # noqa: F401
+
+            self._h2_available = True
+        except ImportError:
+            self._h2_available = False
+        return self._h2_available
+
+    def _get_client(self, key: TransportKey) -> httpx.AsyncClient:
+        """Get or create a client for the given transport key.
+
+        HTTPX 0.28+ requires proxies to be set at client construction,
+        so we maintain one client per proxy key.
+        """
+        client = self._clients.get(key)
+        if client is not None:
+            return client
+
+        effective_http2 = key.http2 and self._check_h2_available()
+        client_kwargs: dict[str, Any] = {
+            "http2": effective_http2,
+            "follow_redirects": key.follow_redirects,
+            "verify": key.verify_ssl,
+        }
+
+        # HTTPX 0.28: proxy is set at client level via the 'proxy' parameter
+        if key.proxy is not None:
+            client_kwargs["proxy"] = key.proxy
+
+        client = httpx.AsyncClient(**client_kwargs)
+        self._clients[key] = client
+        return client
+
+    async def request(
+        self,
+        config: RequestConfig,
+        stream_callback: Callable[[bytes], Any] | None = None,
+    ) -> NormalizedResponse:
+        """Execute a request through httpx."""
+        key = TransportKey(
+            proxy=config.proxy,
+            verify_ssl=config.verify_ssl,
+            follow_redirects=config.follow_redirects,
+            http2=config.http2,
+        )
+        client = self._get_client(key)
 
         kwargs: dict[str, Any] = {
             "method": config.method,
@@ -27,9 +91,10 @@ class HttpxBackend(Backend):
             "params": config.params,
             "headers": config.headers,
             "cookies": config.cookies,
-            "timeout": config.timeout,
-            "follow_redirects": config.follow_redirects,
         }
+
+        if config.timeout is not None:
+            kwargs["timeout"] = config.timeout
 
         if config.data is not None:
             kwargs["content"] = config.data
@@ -37,81 +102,77 @@ class HttpxBackend(Backend):
         if config.json is not None:
             kwargs["json"] = config.json
 
-        if config.proxy is not None:
-            kwargs["proxies"] = {"http": config.proxy, "https": config.proxy}
+        is_streaming = config.stream and stream_callback is not None
 
         try:
-            if config.stream:
-                async with self._client.stream(**kwargs) as response:
-                    headers: dict[str, str] = {}
-                    for key, value in response.headers.items():
-                        headers[key] = value
-
-                    content = await response.aread()
-
-                    content_type = response.headers.get("content-type", "").lower()
-                    is_json = "application/json" in content_type
-
-                    return NormalizedResponse.from_backend(
-                        status_code=response.status_code,
-                        headers=headers,
-                        content=content,
-                        url=str(response.url),
-                        is_json=is_json,
-                    )
-            else:
-                response = await self._client.request(**kwargs)
-
-                headers = {}
-                for key, value in response.headers.items():
-                    headers[key] = value
-
-                content = response.content
-
-                content_type = response.headers.get("content-type", "").lower()
-                is_json = "application/json" in content_type
-
-                return NormalizedResponse.from_backend(
-                    status_code=response.status_code,
-                    headers=headers,
-                    content=content,
-                    url=str(response.url),
-                    is_json=is_json,
-                )
+            if is_streaming and stream_callback is not None:
+                return await self._stream_request(client, kwargs, stream_callback)
+            return await self._normal_request(client, kwargs)
         except httpx.HTTPError as e:
             raise BackendError(f"Request failed: {e}", backend_name=self.name) from e
 
-    async def close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+    async def _normal_request(
+        self, client: httpx.AsyncClient, kwargs: dict[str, Any]
+    ) -> NormalizedResponse:
+        """Execute a non-streaming request."""
+        response = await client.request(**kwargs)
 
-    async def __aenter__(self) -> "HttpxBackend":
-        limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
-        self._h2_available = self._check_h2_available()
-        http2 = self._http2_enabled and self._h2_available
-        self._client = httpx.AsyncClient(http2=http2, limits=limits)
+        headers: dict[str, str] = {}
+        for k, v in response.headers.items():
+            headers[str(k)] = str(v)
+
+        content_type = response.headers.get("content-type", "").lower()
+        is_json = "application/json" in content_type
+
+        return NormalizedResponse.from_backend(
+            status_code=response.status_code,
+            headers=headers,
+            content=response.content,
+            url=str(response.url),
+            is_json=is_json,
+        )
+
+    async def _stream_request(
+        self,
+        client: httpx.AsyncClient,
+        kwargs: dict[str, Any],
+        stream_callback: Callable[[bytes], Any],
+    ) -> NormalizedResponse:
+        """Execute a streaming request, delivering chunks to the callback."""
+        async with client.stream(**kwargs) as response:
+            headers: dict[str, str] = {}
+            for k, v in response.headers.items():
+                headers[str(k)] = str(v)
+
+            content_type = response.headers.get("content-type", "").lower()
+            is_json = "application/json" in content_type
+
+            chunks: list[bytes] = []
+            async for chunk in response.aiter_raw(chunk_size=8192):
+                if chunk:
+                    chunks.append(chunk)
+                    stream_callback(chunk)
+
+            return NormalizedResponse.from_backend(
+                status_code=response.status_code,
+                headers=headers,
+                content=b"".join(chunks),
+                url=str(response.url),
+                is_json=is_json,
+            )
+
+    async def close(self) -> None:
+        """Close all cached clients."""
+        for client in self._clients.values():
+            await client.aclose()
+        self._clients.clear()
+
+    async def __aenter__(self) -> HttpxBackend:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
 
-    def _check_h2_available(self) -> bool:
-        try:
-            import h2  # noqa
-
-            return True
-        except ImportError:
-            return False
-
     def supports_http2(self) -> bool:
-        """Return True if backend supports HTTP/2.
-
-        Httpx supports HTTP/2 when http2_enabled=True and the h2 extra is installed.
-        Without h2, httpx will fallback to HTTP/1.1.
-        """
-        if not self._http2_enabled:
-            return False
-        if not self._h2_available:
-            self._h2_available = self._check_h2_available()
-        return self._h2_available
+        """httpx supports HTTP/2 when h2 is installed."""
+        return self._check_h2_available()

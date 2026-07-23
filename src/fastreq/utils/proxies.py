@@ -1,239 +1,303 @@
-import os
+"""Proxy pool management with health tracking and rotation.
+
+Provides ProxyPool for rotating explicitly-supplied proxies with per-proxy
+failure cooldown and success recovery. Free-proxy discovery is NOT supported.
+"""
+
+from __future__ import annotations
+
 import asyncio
-import time
+import itertools
 import random
-import re
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Optional, List, Dict
+from enum import Enum
+from typing import Literal
+
 from loguru import logger
 
 
+class ProxyError(Exception):
+    """Raised when proxy configuration or validation fails."""
+
+
+class ProxySelection(str, Enum):
+    """Proxy selection strategy."""
+
+    ROUND_ROBIN = "round_robin"
+    RANDOM = "random"
+
+
+def _is_valid_proxy(url: str) -> bool:
+    """Check if a proxy URL has a valid scheme and netloc.
+
+    Accepts http:// and https:// URLs, as well as bare host:port.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    if url.startswith(("http://", "https://")):
+        return True
+    # Accept bare host:port and host:port:user:pass forms
+    parts = url.split(":")
+    if len(parts) == 2:
+        return bool(parts[0]) and parts[1].isdigit()
+    if len(parts) == 4:
+        return bool(parts[0]) and parts[1].isdigit()
+    return False
+
+
+def _normalize_proxy_url(url: str) -> str:
+    """Normalize a proxy URL to a full http:// URL if it lacks a scheme.
+
+    - host:port → http://host:port
+    - host:port:user:pass → http://user:pass@host:port
+    """
+    if url.startswith(("http://", "https://")):
+        return url
+    parts = url.split(":")
+    if len(parts) == 4:
+        host, port, user, pw = parts
+        return f"http://{user}:{pw}@{host}:{port}"
+    return f"http://{url}"
+
+
 @dataclass
-class ProxyConfig:
+class ProxyPoolConfig:
     """Configuration for proxy rotation.
 
     Attributes:
-        enabled: Enable proxy rotation
-        list: List of proxy URLs (IP:PORT or IP:PORT:USER:PASS or http://user:pass@host:port)
-        webshare_url: URL to fetch webshare.io proxy list
-        free_proxies: Enable fetching free proxies (not implemented yet)
-        retry_delay: Seconds before retrying failed proxy
-        validation_timeout: Timeout for proxy validation
+        proxies: List of proxy URLs
+        selection: Selection strategy (round_robin or random)
+        cooldown: Seconds before retrying a failed proxy
     """
 
-    enabled: bool = False
-    list: Optional[List[str]] = None
-    webshare_url: Optional[str] = None
-    free_proxies: bool = False
-    retry_delay: float = 60.0
-    validation_timeout: float = 5.0
+    proxies: list[str] | None = None
+    selection: ProxySelection = ProxySelection.ROUND_ROBIN
+    cooldown: float = 60.0
 
 
-class ProxyValidationError(Exception):
-    """Raised when proxy validation fails."""
+class ProxyPool:
+    """Dependency-free proxy pool with health tracking and rotation.
 
-    pass
+    Accepts normalized URLs from constructor arguments, FASTREQ_PROXIES
+    environment variable, or an explicit Webshare text source. Does NOT
+    fetch free proxies.
 
-
-class ProxyManager:
-    """Manager for proxy rotation and validation.
-
-    Handles loading, validating, rotating, and tracking proxy health.
+    Supports round-robin selection by default, optional random selection
+    for compatibility, per-proxy failure cooldown, and success recovery.
 
     Example:
-        >>> from fastreq.utils.proxies import ProxyManager, ProxyConfig
-        >>> config = ProxyConfig(
-        ...     enabled=True,
-        ...     list=["192.168.1.1:8080", "192.168.1.2:8080:admin:pass"],
-        ... )
-        >>> manager = ProxyManager(config)
-        >>> proxy = await manager.get_next()
+        >>> pool = ProxyPool(proxies=["http://proxy1:8080", "http://proxy2:8080"])
+        >>> proxy = await pool.acquire()
+        >>> await pool.mark_success(proxy)
 
     Proxy formats supported:
-        - IP:PORT (e.g., "192.168.1.1:8080")
-        - IP:PORT:USER:PASS (e.g., "192.168.1.1:8080:admin:pass")
-        - http://USER:PASS@HOST:PORT
-        - https://USER:PASS@HOST:PORT
+        - http://host:port
+        - https://host:port
+        - http://user:pass@host:port
+        - host:port
+        - host:port:user:pass
     """
 
-    PROXY_PATTERNS = [
-        r"^(\d{1,3}\.){3}\d{1,3}:\d{1,5}$",
-        r"^(\d{1,3}\.){3}\d{1,3}:\d{1,5}:[^:]+:[^:]+$",
-        r"^http://[^:]+:[^@]+@[^:]+:\d+$",
-        r"^https://[^:]+:[^@]+@[^:]+:\d+$",
-    ]
-
-    def __init__(self, config: ProxyConfig):
+    def __init__(
+        self,
+        proxies: Iterable[str] | None = None,
+        *,
+        config: ProxyPoolConfig | None = None,
+    ) -> None:
+        if config is None:
+            config = ProxyPoolConfig()
         self._config = config
-        self._proxies: List[str] = []
-        self._failed_proxies: Dict[str, float] = {}
+        self._proxies: list[str] = []
+        self._failed: dict[str, float] = {}  # proxy → cooldown expiry timestamp
         self._lock = asyncio.Lock()
-        self._load_proxies()
+        self._rr_index = 0
+        self._load_proxies(proxies or [])
 
     @classmethod
-    def _validate_ip_octets(cls, ip: str) -> bool:
-        """Validate IP octets are in range 0-255.
+    def from_webshare_text(cls, text: str, **kwargs: object) -> ProxyPool:
+        """Create a ProxyPool from Webshare plain-text format.
+
+        Webshare exports proxies as lines of 'ip:port:user:password'.
+        This method normalizes them to http://user:pass@ip:port URLs.
 
         Args:
-            ip: IP address string
+            text: Webshare proxy list text (one proxy per line)
+            **kwargs: Additional ProxyPoolConfig fields
 
         Returns:
-            True if valid, False otherwise
+            ProxyPool instance
+
+        Raises:
+            ProxyError: If no valid proxies are found
         """
-        octets = ip.split(".")
-        if len(octets) != 4:
-            return False
-        try:
-            return all(0 <= int(octet) <= 255 for octet in octets)
-        except ValueError:
-            return False
+        proxies: list[str] = []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) >= 4:
+                ip, port, user, pw = parts[:4]
+                proxies.append(f"http://{user}:{pw}@{ip}:{port}")
+            elif len(parts) == 2:
+                host, port = parts
+                proxies.append(f"http://{host}:{port}")
+        if not proxies:
+            raise ProxyError("No valid proxies found in Webshare text")
+        return cls(proxies, **kwargs)  # type: ignore[arg-type]
 
-    def _load_proxies(self) -> None:
-        proxies = []
+    @classmethod
+    def from_env(cls, env_var: str = "FASTREQ_PROXIES", **kwargs: object) -> ProxyPool:
+        """Create a ProxyPool from a comma-separated environment variable.
 
-        if self._config.list:
-            proxies.extend(self._config.list)
+        Args:
+            env_var: Environment variable name (default FASTREQ_PROXIES)
+            **kwargs: Additional ProxyPoolConfig fields
 
-        env_proxies = os.getenv("PROXIES", "")
-        if env_proxies:
-            proxies.extend(env_proxies.split(","))
+        Returns:
+            ProxyPool instance (may be empty if env var is not set)
+        """
+        import os
 
-        if self._config.webshare_url:
-            webshare_proxies = self._load_webshare_proxies(self._config.webshare_url)
-            proxies.extend(webshare_proxies)
+        raw = os.getenv(env_var, "")
+        proxies = [p.strip() for p in raw.split(",") if p.strip()]
+        return cls(proxies, **kwargs)  # type: ignore[arg-type]
 
-        if self._config.free_proxies:
-            free_proxies = self._fetch_free_proxies()
-            proxies.extend(free_proxies)
+    def _load_proxies(self, proxies: Iterable[str]) -> None:
+        """Load and normalize proxies, filtering invalid entries."""
+        seen: set[str] = set()
+        valid = 0
+        invalid = 0
 
-        valid_count = 0
-        filtered_count = 0
-        self._proxies = []
         for proxy in proxies:
-            if self.validate(proxy):
-                self._proxies.append(proxy)
-                valid_count += 1
-            else:
-                filtered_count += 1
-                logger.debug(f"Filtered invalid proxy format: {proxy[:50]}...")
+            if not _is_valid_proxy(proxy):
+                invalid += 1
+                logger.debug(f"Filtered invalid proxy format: {proxy[:50]}")
+                continue
+            normalized = _normalize_proxy_url(proxy)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            self._proxies.append(normalized)
+            valid += 1
 
-        if filtered_count > 0:
+        if invalid > 0:
             logger.info(
-                f"Loaded {valid_count} valid proxies, filtered {filtered_count} invalid proxies"
+                f"Loaded {valid} valid proxies, filtered {invalid} invalid proxies"
             )
 
-    def _load_webshare_proxies(self, url: str) -> List[str]:
-        import requests
+    @property
+    def selection(self) -> ProxySelection:
+        return self._config.selection
 
-        try:
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
+    @property
+    def cooldown(self) -> float:
+        return self._config.cooldown
 
-            proxies = []
-            for line in response.text.strip().split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
+    @property
+    def proxies(self) -> list[str]:
+        """Return a copy of the normalized proxy list."""
+        return self._proxies.copy()
 
-                parts = line.split(":")
-                if len(parts) >= 4:
-                    ip, port, user, pw = parts[:4]
-                    proxy = f"http://{user}:{pw}@{ip}:{port}"
-                    proxies.append(proxy)
+    def count(self) -> int:
+        """Total number of proxies in the pool."""
+        return len(self._proxies)
 
-            return proxies
+    def count_available(self) -> int:
+        """Number of proxies not currently in cooldown."""
+        now = time.monotonic()
+        return sum(
+            1
+            for p in self._proxies
+            if p not in self._failed or self._failed[p] <= now
+        )
 
-        except Exception as e:
-            raise ProxyValidationError(f"Failed to load webshare proxies: {e}") from e
+    async def acquire(self) -> str | None:
+        """Get the next available proxy.
 
-    def _fetch_free_proxies(self) -> List[str]:
-        return []
-
-    @classmethod
-    def validate(cls, proxy: str) -> bool:
-        """Validate proxy format.
-
-        Args:
-            proxy: Proxy URL string
+        Excludes proxies currently in cooldown. Uses the configured selection
+        strategy (round-robin or random).
 
         Returns:
-            True if valid format, False otherwise
-
-        Example:
-            >>> ProxyManager.validate("192.168.1.1:8080")
-            True
-            >>> ProxyManager.validate("invalid-proxy")
-            False
+            Proxy URL or None if no proxies are available.
         """
-        if not proxy or not isinstance(proxy, str):
-            return False
+        if not self._proxies:
+            return None
 
-        for pattern in cls.PROXY_PATTERNS:
-            if re.match(pattern, proxy):
-                if pattern in cls.PROXY_PATTERNS[:2]:
-                    ip_part = proxy.split(":")[0]
-                    if not cls._validate_ip_octets(ip_part):
-                        return False
-                return True
-
-        return False
-
-    async def get_next(self) -> Optional[str]:
-        """Get next available proxy.
-
-        Excludes proxies that are currently in failed state.
-
-        Returns:
-            Proxy URL or None if no proxies available
-        """
         async with self._lock:
-            now = time.time()
-
-            self._failed_proxies = {p: t for p, t in self._failed_proxies.items() if t > now}
-
-            available = [p for p in self._proxies if p not in self._failed_proxies]
+            now = time.monotonic()
+            # Purge expired cooldowns
+            self._failed = {p: t for p, t in self._failed.items() if t > now}
+            available = [p for p in self._proxies if p not in self._failed]
 
             if not available:
                 return None
 
-            return random.choice(available)
+            if self._config.selection == ProxySelection.RANDOM:
+                return random.choice(available)
+
+            # Round-robin among available proxies
+            self._rr_index = self._rr_index % len(available)
+            proxy = available[self._rr_index]
+            self._rr_index = (self._rr_index + 1) % len(available)
+            return proxy
 
     async def mark_failed(self, proxy: str) -> None:
-        """Mark proxy as failed (unavailable for retry_delay).
+        """Mark a proxy as failed (enter cooldown).
 
         Args:
             proxy: Proxy URL to mark as failed
         """
         async with self._lock:
             if proxy in self._proxies:
-                self._failed_proxies[proxy] = time.time() + self._config.retry_delay
+                self._failed[proxy] = time.monotonic() + self._config.cooldown
 
     async def mark_success(self, proxy: str) -> None:
-        """Mark proxy as successful (clear failed status).
+        """Mark a proxy as successful (clear cooldown).
 
         Args:
             proxy: Proxy URL to mark as successful
         """
         async with self._lock:
-            self._failed_proxies.pop(proxy, None)
+            self._failed.pop(proxy, None)
 
-    def count(self) -> int:
-        """Get total number of proxies.
 
-        Returns:
-            Total proxy count
-        """
-        return len(self._proxies)
+def load_webshare_from_file(path: str) -> list[str]:
+    """Load proxy URLs from a Webshare text file.
 
-    def count_available(self) -> int:
-        """Get number of available proxies (not in failed state).
+    Args:
+        path: Path to the Webshare text file
 
-        Returns:
-            Available proxy count
-        """
-        now = time.time()
-        return sum(
-            1
-            for p in self._proxies
-            if p not in self._failed_proxies or self._failed_proxies[p] <= now
-        )
+    Returns:
+        List of normalized proxy URLs
+
+    Raises:
+        ProxyError: If the file cannot be read or contains no valid proxies
+    """
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError as e:
+        raise ProxyError(f"Failed to read Webshare file: {e}") from e
+
+    proxies: list[str] = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(":")
+        if len(parts) >= 4:
+            ip, port, user, pw = parts[:4]
+            proxies.append(f"http://{user}:{pw}@{ip}:{port}")
+        elif len(parts) == 2:
+            host, port = parts
+            proxies.append(f"http://{host}:{port}")
+    if not proxies:
+        raise ProxyError(f"No valid proxies found in {path}")
+    return proxies
+
+
+# Selection mode type alias for API compatibility
+ProxySelectionMode = Literal["round_robin", "random"]

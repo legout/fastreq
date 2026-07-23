@@ -1,5 +1,15 @@
+"""Base transport protocol and shared types for fastreq.
+
+Defines the narrow async backend contract implemented only by the retained
+transports (niquests and httpx), plus the normalized request/response
+data structures shared between the client and transports.
+"""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
@@ -7,7 +17,7 @@ from typing import Any, Mapping
 class RequestConfig:
     """Configuration for a single HTTP request.
 
-    Used internally by backends to normalize request parameters.
+    Used internally by transports to normalize request parameters.
 
     Attributes:
         url: Request URL
@@ -42,9 +52,9 @@ class RequestConfig:
 
 @dataclass
 class NormalizedResponse:
-    """Normalized response from HTTP backends.
+    """Normalized response from HTTP transports.
 
-    Provides a consistent interface across different backend implementations.
+    Provides a consistent interface across different transport implementations.
 
     Attributes:
         status_code: HTTP status code
@@ -93,8 +103,8 @@ class NormalizedResponse:
         content: bytes,
         url: str,
         is_json: bool = False,
-    ) -> "NormalizedResponse":
-        """Create NormalizedResponse from backend response.
+    ) -> NormalizedResponse:
+        """Create NormalizedResponse from transport response.
 
         Args:
             status_code: HTTP status code
@@ -119,79 +129,78 @@ class NormalizedResponse:
         )
 
 
-class Backend(ABC):
-    """Abstract base class for HTTP backends.
+@dataclass
+class TransportKey:
+    """Immutable key for caching proxy-scoped transport clients.
 
-    All backends must implement this interface to provide a consistent
-    experience across different HTTP client libraries.
+    HTTPX 0.28+ configures proxies at client construction time, so we must
+    maintain separate clients per (proxy, verify_ssl, follow_redirects, http2) tuple.
+    Niquests sessions are similarly kept per proxy key for cookie isolation.
 
-    Example:
-        >>> class CustomBackend(Backend):
-        ...     @property
-        ...     def name(self) -> str:
-        ...         return "custom"
-        ...
-        ...     async def request(self, config: RequestConfig) -> NormalizedResponse:
-        ...         # Implementation
-        ...         pass
-        ...
-        ...     async def close(self) -> None:
-        ...         # Cleanup
-        ...         pass
-        ...
-        ...     async def __aenter__(self) -> "Backend":
-        ...         return self
-        ...
-        ...     async def __aexit__(self, *args: Any) -> None:
-        ...         await self.close()
-        ...
-        ...     def supports_http2(self) -> bool:
-        ...         return False
+    Attributes:
+        proxy: Proxy URL or None for direct connections
+        verify_ssl: Whether SSL certificates are verified
+        follow_redirects: Whether HTTP redirects are followed
+        http2: Whether HTTP/2 is enabled
     """
 
-    def __init__(self, http2_enabled: bool = True) -> None:
-        """Initialize backend with HTTP/2 configuration.
+    proxy: str | None = None
+    verify_ssl: bool = True
+    follow_redirects: bool = True
+    http2: bool = True
 
-        Args:
-            http2_enabled: Whether HTTP/2 should be enabled if supported by backend.
-                          Ignored by backends that don't support HTTP/2.
-        """
-        self._http2_enabled = http2_enabled
-        self._http2_warned = False
+
+class Backend(ABC):
+    """Abstract base class for HTTP transports.
+
+    All transports must implement this interface to provide a consistent
+    experience across different HTTP client libraries.
+
+    Transports do NOT own concurrency — that is managed by the client.
+    """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Return the backend identifier.
+        """Return the transport identifier.
 
         Returns:
-            Backend name string (e.g., "niquests", "aiohttp", "requests")
+            Transport name string (e.g., "niquests", "httpx")
         """
         ...
 
     @abstractmethod
-    async def request(self, config: RequestConfig) -> NormalizedResponse:
+    async def request(
+        self,
+        config: RequestConfig,
+        stream_callback: Callable[[bytes], Any] | None = None,
+    ) -> NormalizedResponse:
         """Execute an HTTP request and return a normalized response.
 
         Args:
             config: Request configuration
+            stream_callback: Optional callback for streaming chunks.
+                When provided with a streaming request, chunks are delivered
+                as they arrive, before the full body is accumulated.
 
         Returns:
-            NormalizedResponse with status, headers, and content
+            NormalizedResponse with status, headers, and content.
+            For streaming requests, content may be empty after callback delivery.
         """
         ...
 
     @abstractmethod
     async def close(self) -> None:
-        """Clean up backend resources.
+        """Clean up transport resources.
 
         Called when closing the client or exiting context manager.
+        All proxy-scoped clients/sessions SHALL be closed.
         """
         ...
 
     @abstractmethod
-    async def __aenter__(self) -> "Backend":
-        """Enter context manager and initialize backend session.
+    async def __aenter__(self) -> Backend:
+        """Enter context manager and initialize transport session.
 
         Returns:
             Self for use in async with statement
@@ -205,7 +214,7 @@ class Backend(ABC):
 
     @abstractmethod
     def supports_http2(self) -> bool:
-        """Return True if backend supports HTTP/2.
+        """Return True if transport supports HTTP/2.
 
         Returns:
             True if HTTP/2 is supported, False otherwise

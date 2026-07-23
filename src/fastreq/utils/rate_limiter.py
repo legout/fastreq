@@ -1,8 +1,16 @@
+"""Token bucket rate limiting.
+
+The client owns one concurrency gate (semaphore) and one token bucket.
+Rate token acquisition happens BEFORE the concurrency slot is occupied,
+ensuring that a request waiting for a rate token does not block a
+concurrency slot that could serve another request.
+"""
+
+from __future__ import annotations
+
 import asyncio
 import time
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator
 
 from loguru import logger
 
@@ -14,12 +22,10 @@ class RateLimitConfig:
     Attributes:
         requests_per_second: Maximum requests per second
         burst: Maximum burst size (tokens)
-        max_concurrency: Maximum concurrent requests
     """
 
     requests_per_second: float
     burst: int
-    max_concurrency: int = 20
 
 
 class TokenBucket:
@@ -27,12 +33,6 @@ class TokenBucket:
 
     Implements the token bucket algorithm to control request rate with
     burst capability.
-
-    Example:
-        >>> bucket = TokenBucket(requests_per_second=10, burst=5)
-        >>> await bucket.acquire()  # Wait if needed
-        >>> bucket.available()
-        4
 
     Args:
         requests_per_second: Token refill rate
@@ -44,6 +44,7 @@ class TokenBucket:
         self.burst = burst
         self._tokens = float(burst)
         self._last_update = time.monotonic()
+        self._lock = asyncio.Lock()
 
     def _refill_tokens(self) -> None:
         """Refill tokens based on elapsed time."""
@@ -73,21 +74,18 @@ class TokenBucket:
                 self._tokens -= tokens
                 return
             wait_time = (tokens - self._tokens) / self.requests_per_second
+            logger.debug(f"Rate limit: waiting {wait_time:.3f}s for token")
             await asyncio.sleep(wait_time)
 
 
 class AsyncRateLimiter:
     """Async rate limiter using token bucket algorithm.
 
-    Combines token bucket rate limiting with a semaphore for concurrency control.
+    This is a pure token-bucket rate limiter. It does NOT manage concurrency —
+    concurrency is owned by the client via its own semaphore.
 
-    Example:
-        >>> from fastreq.utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
-        >>> config = RateLimitConfig(requests_per_second=10, burst=5, max_concurrency=20)
-        >>> limiter = AsyncRateLimiter(config)
-        >>> async with limiter.acquire():
-        ...     # Make request here
-        ...     pass
+    The client acquires a rate token BEFORE acquiring a concurrency slot,
+    ensuring rate-limit-waiting requests don't occupy slots.
 
     Args:
         config: Rate limiting configuration
@@ -96,19 +94,10 @@ class AsyncRateLimiter:
     def __init__(self, config: RateLimitConfig) -> None:
         self.config = config
         self._bucket = TokenBucket(config.requests_per_second, config.burst)
-        self._semaphore = asyncio.Semaphore(config.max_concurrency)
 
-    @asynccontextmanager
-    async def acquire(self) -> AsyncIterator[None]:
-        """Acquire rate limit token and concurrency slot.
-
-        Yields:
-            None when both token and slot are acquired
-        """
-        async with self._semaphore:
-            logger.debug(f"Rate limiter acquiring token (available: {self._bucket.available()})")
-            await self._bucket.acquire()
-            yield
+    async def acquire(self) -> None:
+        """Acquire a rate token, waiting if necessary."""
+        await self._bucket.acquire()
 
     def available(self) -> int:
         """Get available tokens.

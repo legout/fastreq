@@ -1,32 +1,30 @@
+"""Global configuration for fastreq.
+
+Can be loaded from environment variables or created programmatically.
+"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 
 
 @dataclass
 class GlobalConfig:
-    """Global configuration for parallel requests.
+    """Global configuration for fastreq.
 
     Can be loaded from environment variables or created programmatically.
 
-    Example:
-        >>> from fastreq.config import GlobalConfig
-        >>> config = GlobalConfig(
-        ...     backend="niquests",
-        ...     default_concurrency=10,
-        ... )
-        >>> config.save_to_env(".env")
-
-    Environment variables:
-        PARALLEL_BACKEND: Backend to use ("auto", "niquests", "aiohttp", "requests")
-        PARALLEL_CONCURRENCY: Default concurrency limit
-        PARALLEL_MAX_RETRIES: Default max retries
-        PARALLEL_RATE_LIMIT: Rate limit (requests per second)
-        PARALLEL_RATE_LIMIT_BURST: Rate limit burst size
-        PARALLEL_HTTP2: Enable HTTP/2 (true/false)
-        PARALLEL_RANDOM_USER_AGENT: Rotate user agents (true/false)
-        PARALLEL_RANDOM_PROXY: Enable proxy rotation (true/false)
-        PARALLEL_PROXY_ENABLED: Enable proxies (true/false)
-        PARALLEL_FREE_PROXIES: Enable free proxy fetching (true/false)
+    Environment variables (prefix FASTREQ_):
+        FASTREQ_BACKEND: Backend to use ("auto", "niquests", "httpx")
+        FASTREQ_CONCURRENCY: Default concurrency limit
+        FASTREQ_MAX_RETRIES: Default max retries
+        FASTREQ_RATE_LIMIT: Rate limit (requests per second)
+        FASTREQ_RATE_LIMIT_BURST: Rate limit burst size
+        FASTREQ_HTTP2: Enable HTTP/2 (true/false)
+        FASTREQ_RANDOM_USER_AGENT: Rotate user agents (true/false)
+        FASTREQ_RANDOM_PROXY: Enable proxy rotation (true/false)
+        FASTREQ_PROXIES: Comma-separated proxy URLs
 
     Attributes:
         backend: Default backend selection
@@ -37,8 +35,7 @@ class GlobalConfig:
         http2_enabled: Enable HTTP/2 support
         random_user_agent: Enable user agent rotation
         random_proxy: Enable proxy rotation
-        proxy_enabled: Enable proxy usage
-        free_proxies_enabled: Enable free proxy fetching
+        proxies: Comma-separated proxy URLs
     """
 
     backend: str = "auto"
@@ -49,11 +46,18 @@ class GlobalConfig:
     http2_enabled: bool = True
     random_user_agent: bool = True
     random_proxy: bool = False
-    proxy_enabled: bool = False
-    free_proxies_enabled: bool = False
+    proxies: str | None = None
 
     @classmethod
-    def load_from_env(cls, prefix: str = "PARALLEL_") -> "GlobalConfig":
+    def load_from_env(cls, prefix: str = "FASTREQ_") -> GlobalConfig:
+        """Load configuration from environment variables.
+
+        Args:
+            prefix: Environment variable prefix (default FASTREQ_)
+
+        Returns:
+            GlobalConfig instance
+        """
         import os
 
         def get_bool(key: str, default: bool) -> bool:
@@ -77,11 +81,10 @@ class GlobalConfig:
             http2_enabled=get_bool("HTTP2", True),
             random_user_agent=get_bool("RANDOM_USER_AGENT", True),
             random_proxy=get_bool("RANDOM_PROXY", False),
-            proxy_enabled=get_bool("PROXY_ENABLED", False),
-            free_proxies_enabled=get_bool("FREE_PROXIES", False),
+            proxies=os.getenv(f"{prefix}PROXIES"),
         )
 
-    def to_env(self, prefix: str = "PARALLEL_") -> dict[str, str]:
+    def to_env(self, prefix: str = "FASTREQ_") -> dict[str, str]:
         """Convert config to environment variable dictionary.
 
         Args:
@@ -99,21 +102,16 @@ class GlobalConfig:
             f"{prefix}HTTP2": str(self.http2_enabled).lower(),
             f"{prefix}RANDOM_USER_AGENT": str(self.random_user_agent).lower(),
             f"{prefix}RANDOM_PROXY": str(self.random_proxy).lower(),
-            f"{prefix}PROXY_ENABLED": str(self.proxy_enabled).lower(),
-            f"{prefix}FREE_PROXIES": str(self.free_proxies_enabled).lower(),
+            f"{prefix}PROXIES": self.proxies or "",
         }
         return env
 
-    def save_to_env(self, path: Path | str, prefix: str = "PARALLEL_") -> None:
+    def save_to_env(self, path: Path | str, prefix: str = "FASTREQ_") -> None:
         """Save configuration to an environment file.
 
         Args:
             path: Path to save the .env file
             prefix: Prefix for environment variable names
-
-        Example:
-            >>> config = GlobalConfig(backend="niquests")
-            >>> config.save_to_env(".env")
         """
         p = Path(path) if isinstance(path, str) else path
         env_content = ""

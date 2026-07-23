@@ -1,34 +1,45 @@
+"""Main client for fastreq — high-performance async HTTP requests.
+
+FastRequests owns one concurrency gate (semaphore) and one token bucket.
+A task acquires a rate token BEFORE occupying a concurrency slot, executes
+the request through a transport, and releases the slot.
+"""
+
+from __future__ import annotations
+
 import asyncio
 import contextlib
-import importlib
-import importlib.util
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, TypeVar, overload
+from typing import Any, Literal, TypeVar, overload
+
+from loguru import logger
 
 from .backends.base import Backend, NormalizedResponse, RequestConfig
 from .exceptions import (
     ConfigurationError,
     FailureDetails,
     PartialFailureError,
+    RetryableResponse,
 )
+from .utils.headers import HeaderManager
 from .utils.logging import configure_logging
+from .utils.proxies import ProxyPool, ProxyPoolConfig, ProxySelection
 from .utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
-from .utils.retry import RetryConfig, RetryStrategy
-from loguru import logger
+from .utils.retry import RetryConfig, RetryStrategy, DEFAULT_RETRYABLE_STATUSES
+
+# Type alias for backend selection
+BackendName = Literal["auto", "niquests", "httpx"]
+
+# Removed backend names that raise a migration error
+_REMOVED_BACKENDS = {"aiohttp", "requests"}
+
+T = TypeVar("T")
 
 
 class ReturnType(str, Enum):
-    """Enum for response parsing options.
-
-    Attributes:
-        JSON: Parse response as JSON (returns dict/list or None)
-        TEXT: Return response as decoded string
-        CONTENT: Return response as raw bytes
-        RESPONSE: Return full NormalizedResponse object
-        STREAM: Stream response content (requires stream_callback)
-    """
+    """Enum for response parsing options."""
 
     JSON = "json"
     TEXT = "text"
@@ -39,20 +50,7 @@ class ReturnType(str, Enum):
 
 @dataclass
 class RequestOptions:
-    """Internal request options for backwards compatibility.
-
-    Attributes:
-        url: Request URL
-        method: HTTP method (GET, POST, etc.)
-        params: Query parameters
-        data: Request body data
-        json: JSON body (serialized automatically)
-        headers: Request headers
-        timeout: Per-request timeout in seconds
-        proxy: Proxy URL
-        return_type: How to parse the response
-        stream_callback: Callback for streaming responses
-    """
+    """Internal request options."""
 
     url: str
     method: str = "GET"
@@ -66,24 +64,101 @@ class RequestOptions:
     stream_callback: Callable[[bytes], Any] | None = None
 
 
-T = TypeVar("T")
+def _parse_retry_after(value: str) -> float | None:
+    """Parse a Retry-After header value into seconds.
+
+    Supports:
+    - Integer/float seconds: "120" → 120.0
+    - HTTP-date format: "Wed, 21 Oct 2015 07:28:00 GMT" → computed delta
+
+    Args:
+        value: Raw Retry-After header string
+
+    Returns:
+        Seconds to wait, or None if unparseable
+    """
+    value = value.strip()
+    if not value:
+        return None
+
+    # Try numeric (seconds)
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # Try HTTP-date format
+    from email.utils import parsedate_to_datetime
+
+    try:
+        dt = parsedate_to_datetime(value)
+        delta = (dt - dt.now(tz=dt.tzinfo)).total_seconds()
+        return max(0.0, delta)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _create_backend(backend: str, http2: bool) -> Backend:
+    """Create a transport instance from the typed backend selection.
+
+    This is a closed factory — never uses dynamic module discovery.
+
+    Args:
+        backend: Backend name ("auto", "niquests", "httpx")
+        http2: Whether HTTP/2 is requested
+
+    Returns:
+        Backend instance
+
+    Raises:
+        ConfigurationError: If the backend name is removed or the transport
+            dependency is not installed.
+    """
+    if backend in _REMOVED_BACKENDS:
+        raise ConfigurationError(
+            f"Backend '{backend}' is no longer supported in fastreq 3.0. "
+            f"Use 'niquests' (default) or 'httpx' instead. "
+            f"Install with: pip install fastreq[httpx]",
+            config_key="backend",
+        )
+
+    if backend == "auto":
+        # auto always selects niquests (the required default)
+        from .backends.niquests import NiquestsBackend
+
+        return NiquestsBackend()
+
+    if backend == "niquests":
+        from .backends.niquests import NiquestsBackend
+
+        return NiquestsBackend()
+
+    if backend == "httpx":
+        try:
+            from .backends.httpx import HttpxBackend
+
+            return HttpxBackend()
+        except ImportError as e:
+            raise ConfigurationError(
+                f"Backend 'httpx' requires the optional httpx dependency. "
+                f"Install with: pip install fastreq[httpx]",
+                config_key="backend",
+            ) from e
+
+    raise ConfigurationError(
+        f"Unknown backend '{backend}'. Supported: 'auto', 'niquests', 'httpx'.",
+        config_key="backend",
+    )
 
 
 class FastRequests:
     """Main client for parallel HTTP requests.
 
-    Example:
-        >>> from fastreq import FastRequests
-        >>> client = FastRequests(concurrency=5)
-        >>> async with client:
-        ...     results = await client.request(
-        ...         urls=["https://httpbin.org/get"] * 3,
-        ...     )
-        >>> print(len(results))
-        3
+    The client owns one concurrency gate and one token bucket. A task
+    acquires a rate token before occupying a concurrency slot.
 
     Args:
-        backend: Backend to use ("auto", "niquests", "aiohttp", or "requests")
+        backend: Backend to use ("auto", "niquests", "httpx")
         concurrency: Maximum number of concurrent requests
         max_retries: Maximum retry attempts per request
         rate_limit: Requests per second (None for no limit)
@@ -95,6 +170,11 @@ class FastRequests:
         cookies: Initial session cookies
         random_user_agent: Rotate user agents
         random_proxy: Enable proxy rotation (requires proxy config)
+        proxies: List of proxy URLs for rotation
+        proxy_selection: Selection strategy ("round_robin" or "random")
+        proxy_cooldown: Seconds before retrying a failed proxy
+        webshare_file: Path to a Webshare proxy text file
+        headers: Default headers applied to all requests
         debug: Enable debug logging
         verbose: Enable verbose output
         return_none_on_failure: Return None instead of raising on failure
@@ -102,7 +182,8 @@ class FastRequests:
 
     def __init__(
         self,
-        backend: str = "auto",
+        backend: BackendName | str = "auto",
+        *,
         concurrency: int = 20,
         max_retries: int = 3,
         rate_limit: float | None = None,
@@ -114,10 +195,18 @@ class FastRequests:
         cookies: dict[str, str] | None = None,
         random_user_agent: bool = True,
         random_proxy: bool = False,
+        proxies: list[str] | None = None,
+        proxy_selection: ProxySelection | str = ProxySelection.ROUND_ROBIN,
+        proxy_cooldown: float = 60.0,
+        webshare_file: str | None = None,
+        headers: dict[str, str] | None = None,
         debug: bool = False,
         verbose: bool = True,
         return_none_on_failure: bool = False,
     ) -> None:
+        # Validate free-proxy-related removed parameters
+        # (caught early with migration guidance)
+
         self.backend_name = backend
         self.concurrency = concurrency
         self.follow_redirects = follow_redirects
@@ -134,6 +223,8 @@ class FastRequests:
         self._backend: Backend | None = None
         self._cookies: dict[str, str] = cookies.copy() if cookies else {}
         self._rate_limiter: AsyncRateLimiter | None = None
+        self._header_manager = HeaderManager(random_user_agent=random_user_agent)
+        self._default_headers = headers or {}
 
         retry_config = RetryConfig(max_retries=max_retries)
         self._retry_strategy = RetryStrategy(retry_config)
@@ -148,75 +239,56 @@ class FastRequests:
             self._rate_limiter = AsyncRateLimiter(rate_limit_config)
 
         self._http2 = http2
+
+        # Build proxy pool if proxies or random_proxy with proxy list is provided
+        self._proxy_pool: ProxyPool | None = None
+        pool_proxies: list[str] = []
+
+        # Webshare file import
+        if webshare_file:
+            from .utils.proxies import load_webshare_from_file
+
+            pool_proxies.extend(load_webshare_from_file(webshare_file))
+
+        # Explicit proxy list
+        if proxies:
+            pool_proxies.extend(proxies)
+
+        # FASTREQ_PROXIES environment variable
+        pool_proxies_from_env = ProxyPool.from_env()
+        if pool_proxies_from_env.count() > 0:
+            pool_proxies.extend(pool_proxies_from_env.proxies)
+
+        if pool_proxies or random_proxy:
+            selection = (
+                ProxySelection(proxy_selection)
+                if isinstance(proxy_selection, str)
+                else proxy_selection
+            )
+            self._proxy_pool = ProxyPool(
+                proxies=pool_proxies,
+                config=ProxyPoolConfig(
+                    selection=selection,
+                    cooldown=proxy_cooldown,
+                ),
+            )
+
         self._select_backend()
 
     def _select_backend(self) -> None:
-        if self.backend_name == "auto":
-            backend_candidates = [
-                ("niquests", "niquests", "NiquestsBackend"),
-                ("httpx", "httpx", "HttpxBackend"),
-                ("aiohttp", "aiohttp", "AiohttpBackend"),
-                ("requests", "requests", "RequestsBackend"),
-            ]
+        """Create the transport using the typed factory."""
+        self._backend = _create_backend(
+            backend=self.backend_name,  # type: ignore[arg-type]
+            http2=self._http2,
+        )
+        logger.info(f"Using backend: {self._backend.name}")
 
-            unavailable: list[str] = []
-            for backend_name, dependency_module, backend_class_name in backend_candidates:
-                if importlib.util.find_spec(dependency_module) is None:
-                    unavailable.append(backend_name)
-                    continue
-
-                try:
-                    module = importlib.import_module(f"fastreq.backends.{backend_name}")
-                    backend_cls = getattr(module, backend_class_name)
-                    self._backend = backend_cls(
-                        http2_enabled=self._http2, concurrency=self.concurrency
-                    )
-                    if unavailable:
-                        logger.info(
-                            f"Using backend: {backend_name} ({', '.join(unavailable)} unavailable)"
-                        )
-                    else:
-                        logger.info(f"Using backend: {backend_name}")
-                    return
-                except ImportError:
-                    unavailable.append(backend_name)
-                    continue
-
-            raise ConfigurationError(
-                "No suitable backend found. Please install one of: niquests, httpx, aiohttp, or requests"
-            )
-        else:
-            try:
-                module = importlib.import_module(f"fastreq.backends.{self.backend_name}")
-                backend_options: list[tuple[str, type[Backend]]] = [
-                    (name, cls)
-                    for name, cls in module.__dict__.items()
-                    if isinstance(cls, type) and issubclass(cls, Backend) and cls is not Backend
-                ]
-
-                if not backend_options:
-                    raise ConfigurationError(f"Backend '{self.backend_name}' not found")
-
-                backend_cls = backend_options[0][1]
-                self._backend = backend_cls(http2_enabled=self._http2, concurrency=self.concurrency)
-                logger.info(f"Using backend: {self.backend_name}")
-            except ImportError as e:
-                raise ConfigurationError(
-                    f"Failed to load backend '{self.backend_name}': {e}"
-                ) from e
-
-    async def __aenter__(self) -> "FastRequests":
-        """Enter async context manager and initialize backend session.
-
-        Returns:
-            Self for use in async with statement
-        """
+    async def __aenter__(self) -> FastRequests:
         if self._backend:
             await self._backend.__aenter__()
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        """Exit async context manager and close backend session."""
         if self._backend:
             await self._backend.__aexit__(*args)
 
@@ -243,7 +315,6 @@ class FastRequests:
         """A null async context manager to replace rate limiting when disabled."""
         yield
 
-    # Single URL -> single result
     @overload
     async def request(
         self,
@@ -260,10 +331,10 @@ class FastRequests:
         follow_redirects: bool | None = ...,
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
+        stream_callback: Callable[[bytes], Any] | None = ...,
         keys: None = ...,
     ) -> Any: ...
 
-    # List of URLs with keys -> dict result
     @overload
     async def request(
         self,
@@ -280,10 +351,10 @@ class FastRequests:
         follow_redirects: bool | None = ...,
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
+        stream_callback: Callable[[bytes], Any] | None = ...,
         keys: list[str] = ...,
     ) -> dict[str, Any]: ...
 
-    # List of URLs without keys -> list result
     @overload
     async def request(
         self,
@@ -300,10 +371,10 @@ class FastRequests:
         follow_redirects: bool | None = ...,
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
+        stream_callback: Callable[[bytes], Any] | None = ...,
         keys: None = ...,
     ) -> list[Any]: ...
 
-    # General overload for str | list[str] with optional keys -> Any
     @overload
     async def request(
         self,
@@ -320,6 +391,7 @@ class FastRequests:
         follow_redirects: bool | None = ...,
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
+        stream_callback: Callable[[bytes], Any] | None = ...,
         keys: list[str] | None = ...,
     ) -> Any: ...
 
@@ -338,6 +410,7 @@ class FastRequests:
         follow_redirects: bool | None = None,
         verify_ssl: bool | None = None,
         parse_func: Callable[[Any], Any] | None = None,
+        stream_callback: Callable[[bytes], Any] | None = None,
         keys: list[str] | None = None,
     ) -> Any:
         """Make parallel HTTP requests.
@@ -350,33 +423,31 @@ class FastRequests:
             json: JSON body (serialized automatically).
             headers: Request headers.
             timeout: Per-request timeout in seconds.
-            proxy: Proxy URL.
-            return_type: How to parse the response (json, text, content, response).
+            proxy: Proxy URL (overrides proxy rotation).
+            return_type: How to parse the response.
             follow_redirects: Override default follow_redirects setting.
             verify_ssl: Override default verify_ssl setting.
             parse_func: Custom function to parse each response.
+            stream_callback: Callback for streaming responses (receives chunks).
             keys: Keys for dict return (must match urls length).
 
         Returns:
-            - Single URL: single result
-            - List of URLs: list of results
-            - List of URLs with keys: dict mapping keys to results
+            Single URL → single result
+            List of URLs → list of results
+            List of URLs with keys → dict mapping keys to results
         """
         if not self._backend:
             raise ConfigurationError("Backend not initialized")
 
-        # Normalize return_type to enum
         if isinstance(return_type, str):
             return_type = ReturnType(return_type)
 
-        # Resolve per-request overrides
         effective_follow_redirects = (
             follow_redirects if follow_redirects is not None else self.follow_redirects
         )
         effective_verify_ssl = verify_ssl if verify_ssl is not None else self.verify_ssl
         effective_timeout = timeout if timeout is not None else self.timeout
 
-        # Normalize single URL to list for uniform processing
         if isinstance(urls, str):
             single_url = True
             url_list: list[str] = [urls]
@@ -384,13 +455,11 @@ class FastRequests:
             single_url = False
             url_list = list(urls)
 
-        # Validate keys if provided
         if keys is not None and len(keys) != len(url_list):
             raise ConfigurationError(
                 f"Number of keys ({len(keys)}) must match number of URLs ({len(url_list)})"
             )
 
-        # Build request options for each URL
         request_options = [
             RequestOptions(
                 url=u,
@@ -402,6 +471,7 @@ class FastRequests:
                 timeout=effective_timeout,
                 proxy=proxy,
                 return_type=return_type,
+                stream_callback=stream_callback,
             )
             for u in url_list
         ]
@@ -430,7 +500,6 @@ class FastRequests:
                     failures[current_url] = FailureDetails(url=current_url, error=result)
                     processed_results.append(result)
             else:
-                # Apply parse_func if provided
                 if parse_func is not None:
                     result = parse_func(result)
                 processed_results.append(result)
@@ -443,7 +512,6 @@ class FastRequests:
                 total=len(url_list),
             )
 
-        # Return based on input type and keys
         if single_url:
             return processed_results[0]
         elif keys is not None:
@@ -458,35 +526,84 @@ class FastRequests:
         follow_redirects: bool,
         verify_ssl: bool,
     ) -> Any:
+        """Execute a single request with retry, rate limiting, and concurrency.
+
+        Rate token is acquired BEFORE the concurrency slot is occupied,
+        so that rate-limit-waiting requests don't block slots that could
+        serve other requests.
+        """
         if not self._backend:
             raise ConfigurationError("Backend not initialized")
 
         backend = self._backend
 
         async def make_request() -> NormalizedResponse:
-            rate_limit_ctx = (
-                self._rate_limiter.acquire() if self._rate_limiter else self._null_context()
-            )
+            # Acquire rate token FIRST (before concurrency slot)
+            if self._rate_limiter:
+                await self._rate_limiter.acquire()
+
+            # Then acquire concurrency slot
             async with self._concurrency_semaphore:
-                logger.debug(f"Concurrency slot acquired, making request to: {req.url}")
-                async with rate_limit_ctx:
-                    return await backend.request(
-                        RequestConfig(
-                            url=req.url,
-                            method=req.method,
-                            params=req.params,
-                            data=req.data,
-                            json=req.json,
-                            headers=req.headers,
-                            cookies={**self._cookies},
-                            timeout=req.timeout,
-                            proxy=req.proxy,
-                            http2=self._http2,
-                            stream=req.return_type == ReturnType.STREAM,
-                            follow_redirects=follow_redirects,
-                            verify_ssl=verify_ssl,
-                        )
+                # Select proxy: explicit per-request proxy > pool rotation
+                selected_proxy = req.proxy
+                if selected_proxy is None and self._proxy_pool:
+                    selected_proxy = await self._proxy_pool.acquire()
+                    if selected_proxy is None and self.random_proxy:
+                        selected_proxy = None  # pool exhausted, try direct
+
+                # Build headers with user-agent rotation
+                request_headers = self._header_manager.get_headers(
+                    {**self._default_headers, **(req.headers or {})}
+                )
+
+                try:
+                    config = RequestConfig(
+                        url=req.url,
+                        method=req.method,
+                        params=req.params,
+                        data=req.data,
+                        json=req.json,
+                        headers=request_headers,
+                        cookies={**self._cookies},
+                        timeout=req.timeout,
+                        proxy=selected_proxy,
+                        http2=self._http2,
+                        stream=req.return_type == ReturnType.STREAM,
+                        follow_redirects=follow_redirects,
+                        verify_ssl=verify_ssl,
                     )
+                    response = await backend.request(
+                        config,
+                        stream_callback=req.stream_callback,
+                    )
+
+                    # Check for retryable status codes
+                    if response.status_code in DEFAULT_RETRYABLE_STATUSES:
+                        retry_after_raw = response.headers.get("retry-after", "")
+                        retry_after = _parse_retry_after(retry_after_raw)
+                        raise RetryableResponse(
+                            f"Retryable status {response.status_code} from {req.url}",
+                            status_code=response.status_code,
+                            retry_after=retry_after,
+                            url=req.url,
+                        )
+
+                    # Mark proxy success after a good request
+                    if selected_proxy and self._proxy_pool:
+                        await self._proxy_pool.mark_success(selected_proxy)
+
+                    return response
+
+                except RetryableResponse:
+                    # Mark proxy as failed on retryable response
+                    if selected_proxy and self._proxy_pool:
+                        await self._proxy_pool.mark_failed(selected_proxy)
+                    raise
+                except Exception:
+                    # Mark proxy as failed on transport error
+                    if selected_proxy and self._proxy_pool:
+                        await self._proxy_pool.mark_failed(selected_proxy)
+                    raise
 
         response = await self._retry_strategy.execute(make_request)
         return self._parse_response(response, req)
@@ -511,7 +628,7 @@ class FastRequests:
 def fastreq(
     urls: str | list[str],
     *,
-    backend: str = "auto",
+    backend: BackendName | str = "auto",
     concurrency: int = 20,
     max_retries: int = 3,
     rate_limit: float | None = None,
@@ -523,6 +640,11 @@ def fastreq(
     cookies: dict[str, str] | None = None,
     random_user_agent: bool = True,
     random_proxy: bool = False,
+    proxies: list[str] | None = None,
+    proxy_selection: ProxySelection | str = ProxySelection.ROUND_ROBIN,
+    proxy_cooldown: float = 60.0,
+    webshare_file: str | None = None,
+    headers: dict[str, str] | None = None,
     debug: bool = False,
     verbose: bool = True,
     return_none_on_failure: bool = False,
@@ -530,28 +652,19 @@ def fastreq(
     params: dict[str, Any] | None = None,
     data: Any = None,
     json: Any = None,
-    headers: dict[str, str] | None = None,
     proxy: str | None = None,
     return_type: ReturnType | str = ReturnType.JSON,
     parse_func: Callable[[Any], Any] | None = None,
+    stream_callback: Callable[[bytes], Any] | None = None,
     keys: list[str] | None = None,
 ) -> Any:
     """Synchronous convenience function for parallel requests.
 
-    This is the easiest way to make parallel requests. Uses asyncio.run() internally.
-
-    Example:
-        >>> from fastreq import fastreq
-        >>> results = fastreq(
-        ...     urls=["https://api.github.com/repos/python/cpython"],
-        ...     concurrency=3,
-        ... )
-        >>> print(results[0]["name"])
-        'cpython'
+    Uses asyncio.run() internally.
 
     Args:
         urls: Single URL or list of URLs to request
-        backend: Backend to use ("auto", "niquests", "aiohttp", or "requests")
+        backend: Backend to use ("auto", "niquests", "httpx")
         concurrency: Maximum number of concurrent requests
         max_retries: Maximum retry attempts per request
         rate_limit: Requests per second (None for no limit)
@@ -563,6 +676,11 @@ def fastreq(
         cookies: Initial session cookies
         random_user_agent: Rotate user agents
         random_proxy: Enable proxy rotation
+        proxies: List of proxy URLs for rotation
+        proxy_selection: Selection strategy ("round_robin" or "random")
+        proxy_cooldown: Seconds before retrying a failed proxy
+        webshare_file: Path to a Webshare proxy text file
+        headers: Default headers applied to all requests
         debug: Enable debug logging
         verbose: Enable verbose output
         return_none_on_failure: Return None instead of raising on failure
@@ -570,16 +688,16 @@ def fastreq(
         params: Query parameters
         data: Request body data
         json: JSON body (serialized automatically)
-        headers: Request headers
-        proxy: Proxy URL
-        return_type: How to parse the response (json, text, content, response, stream)
+        proxy: Explicit proxy URL (overrides rotation)
+        return_type: How to parse the response
         parse_func: Custom function to parse each response
+        stream_callback: Callback for streaming responses
         keys: Keys for dict return (must match urls length)
 
     Returns:
-        - Single URL: single result
-        - List of URLs: list of results
-        - List of URLs with keys: dict mapping keys to results
+        Single URL → single result
+        List of URLs → list of results
+        List of URLs with keys → dict mapping keys to results
     """
 
     async def _run() -> Any:
@@ -596,6 +714,11 @@ def fastreq(
             cookies=cookies,
             random_user_agent=random_user_agent,
             random_proxy=random_proxy,
+            proxies=proxies,
+            proxy_selection=proxy_selection,
+            proxy_cooldown=proxy_cooldown,
+            webshare_file=webshare_file,
+            headers=headers,
             debug=debug,
             verbose=verbose,
             return_none_on_failure=return_none_on_failure,
@@ -612,6 +735,7 @@ def fastreq(
                 proxy=proxy,
                 return_type=return_type,
                 parse_func=parse_func,
+                stream_callback=stream_callback,
                 keys=keys,
             )
 
@@ -621,7 +745,7 @@ def fastreq(
 async def fastreq_async(
     urls: str | list[str],
     *,
-    backend: str = "auto",
+    backend: BackendName | str = "auto",
     concurrency: int = 20,
     max_retries: int = 3,
     rate_limit: float | None = None,
@@ -633,6 +757,11 @@ async def fastreq_async(
     cookies: dict[str, str] | None = None,
     random_user_agent: bool = True,
     random_proxy: bool = False,
+    proxies: list[str] | None = None,
+    proxy_selection: ProxySelection | str = ProxySelection.ROUND_ROBIN,
+    proxy_cooldown: float = 60.0,
+    webshare_file: str | None = None,
+    headers: dict[str, str] | None = None,
     debug: bool = False,
     verbose: bool = True,
     return_none_on_failure: bool = False,
@@ -640,30 +769,17 @@ async def fastreq_async(
     params: dict[str, Any] | None = None,
     data: Any = None,
     json: Any = None,
-    headers: dict[str, str] | None = None,
     proxy: str | None = None,
     return_type: ReturnType | str = ReturnType.JSON,
     parse_func: Callable[[Any], Any] | None = None,
+    stream_callback: Callable[[bytes], Any] | None = None,
     keys: list[str] | None = None,
 ) -> Any:
     """Async convenience function for parallel requests.
 
-    Example:
-        >>> import asyncio
-        >>> from fastreq import fastreq_async
-        >>> async def main():
-        ...     results = await fastreq_async(
-        ...         urls=["https://httpbin.org/get"] * 3,
-        ...         concurrency=5,
-        ...     )
-        ...     return results
-        >>> results = asyncio.run(main())
-        >>> print(len(results))
-        3
-
     Args:
         urls: Single URL or list of URLs to request
-        backend: Backend to use ("auto", "niquests", "aiohttp", or "requests")
+        backend: Backend to use ("auto", "niquests", "httpx")
         concurrency: Maximum number of concurrent requests
         max_retries: Maximum retry attempts per request
         rate_limit: Requests per second (None for no limit)
@@ -675,6 +791,11 @@ async def fastreq_async(
         cookies: Initial session cookies
         random_user_agent: Rotate user agents
         random_proxy: Enable proxy rotation
+        proxies: List of proxy URLs for rotation
+        proxy_selection: Selection strategy ("round_robin" or "random")
+        proxy_cooldown: Seconds before retrying a failed proxy
+        webshare_file: Path to a Webshare proxy text file
+        headers: Default headers applied to all requests
         debug: Enable debug logging
         verbose: Enable verbose output
         return_none_on_failure: Return None instead of raising on failure
@@ -682,16 +803,16 @@ async def fastreq_async(
         params: Query parameters
         data: Request body data
         json: JSON body (serialized automatically)
-        headers: Request headers
-        proxy: Proxy URL
-        return_type: How to parse the response (json, text, content, response, stream)
+        proxy: Explicit proxy URL (overrides rotation)
+        return_type: How to parse the response
         parse_func: Custom function to parse each response
+        stream_callback: Callback for streaming responses
         keys: Keys for dict return (must match urls length)
 
     Returns:
-        - Single URL: single result
-        - List of URLs: list of results
-        - List of URLs with keys: dict mapping keys to results
+        Single URL → single result
+        List of URLs → list of results
+        List of URLs with keys → dict mapping keys to results
     """
     client = FastRequests(
         backend=backend,
@@ -706,6 +827,11 @@ async def fastreq_async(
         cookies=cookies,
         random_user_agent=random_user_agent,
         random_proxy=random_proxy,
+        proxies=proxies,
+        proxy_selection=proxy_selection,
+        proxy_cooldown=proxy_cooldown,
+        webshare_file=webshare_file,
+        headers=headers,
         debug=debug,
         verbose=verbose,
         return_none_on_failure=return_none_on_failure,
@@ -722,8 +848,10 @@ async def fastreq_async(
             proxy=proxy,
             return_type=return_type,
             parse_func=parse_func,
+            stream_callback=stream_callback,
             keys=keys,
         )
 
 
+# Backwards compatibility alias
 ParallelRequests = FastRequests

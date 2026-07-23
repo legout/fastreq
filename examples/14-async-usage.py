@@ -9,7 +9,8 @@ This example demonstrates:
 """
 
 import asyncio
-from fastreq import fastreq_async, FastRequests
+
+from fastreq import FastRequests, fastreq_async
 
 
 async def fetch_data(urls: list[str]) -> list[dict]:
@@ -102,7 +103,7 @@ async def main():
     fetched_data = await fetch_data(urls)
     processed_data = await process_data(fetched_data)
 
-    print(f"\nPipeline results:")
+    print("\nPipeline results:")
     print(f"  Fetched: {len(fetched_data)} items")
     print(f"  Processed: {len(processed_data)} items")
 

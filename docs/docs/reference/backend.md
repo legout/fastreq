@@ -155,18 +155,17 @@ headers = NormalizedResponse._normalize_headers({
 
 | Backend | HTTP/2 | Description |
 |---------|--------|-------------|
-| `niquests` | ✅ | Recommended,高性能 |
-| `aiohttp` | ✅ | Native async |
-| `requests` | ❌ | Synchronous |
+| `niquests` | ✅ | Default backend, high performance |
+| `httpx` | ✅ | Optional backend, modern async |
 
 ### Using Backends
 
 ```python
-# Auto-select (recommended)
-client = ParallelRequests(backend="auto")
+# Auto-select (recommended, selects niquests by default)
+client = FastRequests(backend="auto")
 
 # Specific backend
-client = ParallelRequests(backend="niquests")
+client = FastRequests(backend="niquests")  # or "httpx"
 ```
 
 ### Backend Initialization

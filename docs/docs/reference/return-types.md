@@ -163,6 +163,6 @@ result = await client.request("https://example.com")
 
 ## See Also
 
-- [API Reference: FastRequests.request()](api/parallelrequests.md)
+- [API Reference: FastRequests.request()](api/fastrequests.md)
 - [API Reference: ReturnType](api/returntype.md)
 - [How-to: Post JSON Data](../how-to-guides/post-json-data.md)

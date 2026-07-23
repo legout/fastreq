@@ -276,14 +276,14 @@ urls = normalize_urls("https://example.com")
 print(urls)  # ["https://example.com"]
 ```
 
-### Integration with ParallelRequests
+### Integration with FastRequests
 
-ParallelRequests uses these validators internally:
+FastRequests uses these validators internally:
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 
-async with ParallelRequests() as client:
+async with FastRequests() as client:
     # URLs are validated internally
     results = await client.request("https://example.com")
 

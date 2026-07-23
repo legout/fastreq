@@ -1,11 +1,11 @@
 # Exceptions
 
-All fastreq exceptions inherit from `ParallelRequestsError`.
+All fastreq exceptions inherit from `FastRequestsError`.
 
 ## Exception Hierarchy
 
 ```
-ParallelRequestsError
+FastRequestsError
 ├── BackendError
 ├── ProxyError
 ├── RetryExhaustedError
@@ -19,17 +19,17 @@ ParallelRequestsError
 
 ## Exception Types
 
-### ParallelRequestsError
+### FastRequestsError
 
 Base exception for all fastreq errors.
 
 ```python
-from fastreq.exceptions import ParallelRequestsError
+from fastreq.exceptions import FastRequestsError
 
 try:
     await client.request(url)
-except ParallelRequestsError as e:
-    print(f"Parallel-requests error: {e}")
+except FastRequestsError as e:
+    print(f"fastreq error: {e}")
 ```
 
 ---
@@ -160,7 +160,7 @@ Raised when configuration is invalid.
 from fastreq.exceptions import ConfigurationError
 
 try:
-    client = ParallelRequests(backend="invalid")
+    client = FastRequests(backend="invalid")
 except ConfigurationError as e:
     print(f"Configuration error: {e}")
     print(f"Invalid config key: {e.config_key}")
@@ -236,7 +236,7 @@ class FailureDetails:
 Use `return_none_on_failure=True` to avoid raising exceptions:
 
 ```python
-async with ParallelRequests(return_none_on_failure=True) as client:
+async with FastRequests(return_none_on_failure=True) as client:
     results = await client.request([
         "https://example.com/1",
         "https://invalid-url",
@@ -255,6 +255,6 @@ async with ParallelRequests(return_none_on_failure=True) as client:
 
 ## See Also
 
-- [API Reference: ParallelRequests](api/parallelrequests.md)
+- [API Reference: FastRequests](api/fastrequests.md)
 - [How-to: Handle Errors](../tutorials/handling-errors.md)
 - [How-to: Debug Issues](../how-to-guides/debug-issues.md)

@@ -2,75 +2,66 @@
 
 Manage, validate, and rotate HTTP proxies with automatic health tracking.
 
-## ProxyManager
+## ProxyPool
 
-Main proxy manager class for proxy rotation and validation.
+Main proxy pool class for proxy rotation and validation.
 
 ```python
-from fastreq.utils.proxies import ProxyManager, ProxyConfig
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
 
-config = ProxyConfig(
-    enabled=True,
-    list=[
+config = ProxyPoolConfig(
+    proxies=[
         "192.168.1.1:8080",
         "192.168.1.2:8080:user:pass",
     ],
-    retry_delay=60.0,
-    validation_timeout=5.0,
+    cooldown=60.0,
 )
 
-manager = ProxyManager(config)
+pool = ProxyPool(config=config)
 
 # Get next available proxy
-proxy = await manager.get_next()
+proxy = await pool.acquire()
 
 # Mark proxy as failed
-await manager.mark_failed(proxy)
+await pool.mark_failed(proxy)
 
 # Mark proxy as successful
-await manager.mark_success(proxy)
+await pool.mark_success(proxy)
 ```
 
-### ProxyManager Methods
+### ProxyPool Methods
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
-| `get_next()` | `Optional[str]` | Get next available proxy |
-| `mark_failed(proxy)` | `None` | Mark proxy as failed |
-| `mark_success(proxy)` | `None` | Mark proxy as successful |
+| `acquire()` | `str \| None` | Get next available proxy |
+| `mark_failed(proxy)` | `None` | Mark proxy as failed (enters cooldown) |
+| `mark_success(proxy)` | `None` | Mark proxy as successful (clears cooldown) |
 | `count()` | `int` | Get total proxy count |
 | `count_available()` | `int` | Get available proxy count |
-| `validate(proxy)` | `bool` | Validate proxy format (class method) |
 
 ---
 
-## ProxyConfig
+## ProxyPoolConfig
 
 Configuration for proxy rotation.
 
 ```python
-from fastreq.utils.proxies import ProxyConfig
+from fastreq.utils.proxies import ProxyPoolConfig, ProxySelection
 
-config = ProxyConfig(
-    enabled=True,                      # Enable proxy rotation
-    list=["192.168.1.1:8080"],        # Proxy list
-    webshare_url="https://...",       # Webshare proxy list URL
-    free_proxies=False,               # Fetch free proxies
-    retry_delay=60.0,                 # Seconds before retrying failed proxy
-    validation_timeout=5.0,           # Proxy validation timeout
+config = ProxyPoolConfig(
+    proxies=["192.168.1.1:8080"],                # Proxy list
+    selection=ProxySelection.ROUND_ROBIN,         # Selection strategy
+    cooldown=60.0,                               # Seconds before retrying failed proxy
 )
 ```
 
-### ProxyConfig Attributes
+### ProxyPoolConfig Attributes
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | `bool` | `False` | Enable proxy rotation |
-| `list` | `List[str] \| None` | `None` | List of proxy URLs |
-| `webshare_url` | `str \| None` | `None` | Webshare proxy list URL |
-| `free_proxies` | `bool` | `False` | Enable free proxy fetching |
-| `retry_delay` | `float` | `60.0` | Seconds before retrying failed proxy |
-| `validation_timeout` | `float` | `5.0` | Timeout for proxy validation |
+| `proxies` | `list[str] \| None` | `None` | List of proxy URLs |
+| `selection` | `ProxySelection` | `ROUND_ROBIN` | Selection strategy (round_robin or random) |
+| `cooldown` | `float` | `60.0` | Seconds before retrying failed proxy |
 
 ---
 
@@ -101,11 +92,11 @@ config = ProxyConfig(
 ### Proxy Validation
 
 ```python
-from fastreq.utils.proxies import ProxyManager
+from fastreq.utils.proxies import _is_valid_proxy
 
 # Validate proxy format
-is_valid = ProxyManager.validate("192.168.1.1:8080")  # True
-is_valid = ProxyManager.validate("invalid-proxy")     # False
+is_valid = _is_valid_proxy("192.168.1.1:8080")  # True
+is_valid = _is_valid_proxy("invalid-proxy")     # False
 ```
 
 ### IP Validation
@@ -128,39 +119,37 @@ IP octets are validated to be in range 0-255:
 ### From Configuration
 
 ```python
-config = ProxyConfig(
-    enabled=True,
-    list=[
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
+
+config = ProxyPoolConfig(
+    proxies=[
         "192.168.1.1:8080",
         "192.168.1.2:8080:user:pass",
     ],
 )
-manager = ProxyManager(config)
+pool = ProxyPool(config=config)
 ```
 
 ### From Environment Variable
 
 ```bash
 # .env or environment
-PROXIES=192.168.1.1:8080,192.168.1.2:8080,http://user:pass@proxy:8080
+FASTREQ_PROXIES=192.168.1.1:8080,192.168.1.2:8080,http://user:pass@proxy:8080
 ```
 
 ```python
-import os
-from fastreq.utils.proxies import ProxyConfig
+from fastreq.utils.proxies import ProxyPool
 
-config = ProxyConfig(enabled=True)
-manager = ProxyManager(config)  # Loads from PROXIES env var
+pool = ProxyPool.from_env()  # Loads from FASTREQ_PROXIES env var
 ```
 
 ### From Webshare
 
 ```python
-config = ProxyConfig(
-    enabled=True,
-    webshare_url="https://proxy.webshare.io/api/v2/proxy/list",
-)
-manager = ProxyManager(config)
+from fastreq.utils.proxies import ProxyPool
+
+# Load from Webshare plain-text (IP:PORT:USER:PASS per line)
+pool = ProxyPool.from_webshare_text(webshare_text)
 ```
 
 Webshare format: One per line, `IP:PORT:USER:PASS`
@@ -174,20 +163,21 @@ Webshare format: One per line, `IP:PORT:USER:PASS`
 Failed proxies are temporarily excluded from rotation:
 
 ```python
-config = ProxyConfig(
-    enabled=True,
-    list=["proxy1:8080", "proxy2:8080", "proxy3:8080"],
-    retry_delay=60.0,  # Retry failed proxies after 60s
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
+
+config = ProxyPoolConfig(
+    proxies=["proxy1:8080", "proxy2:8080", "proxy3:8080"],
+    cooldown=60.0,  # Retry failed proxies after 60s
 )
 
-manager = ProxyManager(config)
+pool = ProxyPool(config=config)
 
 # Proxy fails
-proxy = await manager.get_next()  # e.g., "proxy1:8080"
-await manager.mark_failed(proxy)   # Excluded for 60s
+proxy = await pool.acquire()  # e.g., "proxy1:8080"
+await pool.mark_failed(proxy)   # Excluded for 60s
 
 # Next request gets different proxy
-next_proxy = await manager.get_next()  # "proxy2:8080" (not proxy1)
+next_proxy = await pool.acquire()  # "proxy2:8080" (not proxy1)
 
 # After 60s, proxy1 is available again
 ```
@@ -197,23 +187,23 @@ next_proxy = await manager.get_next()  # "proxy2:8080" (not proxy1)
 Successful proxies are cleared from failed state:
 
 ```python
-proxy = await manager.get_next()
+proxy = await pool.acquire()
 # Make request
 try:
     result = await make_request(proxy)
-    await manager.mark_success(proxy)  # Clear failed status
+    await pool.mark_success(proxy)  # Clear failed status
 except Exception:
-    await manager.mark_failed(proxy)
+    await pool.mark_failed(proxy)
 ```
 
 ### Monitoring
 
 ```python
 # Total proxies
-total = manager.count()
+total = pool.count()
 
-# Available proxies (not failed)
-available = manager.count_available()
+# Available proxies (not in cooldown)
+available = pool.count_available()
 
 # Failed proxies
 failed = total - available
@@ -223,13 +213,13 @@ failed = total - available
 
 ## Using Proxy Rotation
 
-### In ParallelRequests Client
+### In FastRequests Client
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 
 # Enable proxy rotation
-client = ParallelRequests(
+client = FastRequests(
     random_proxy=True,
     proxy="http://proxy:8080",  # Base proxy
 )
@@ -238,25 +228,24 @@ client = ParallelRequests(
 ### Standalone Usage
 
 ```python
-from fastreq.utils.proxies import ProxyManager, ProxyConfig
+from fastreq.utils.proxies import ProxyPool, ProxyPoolConfig
 
-config = ProxyConfig(
-    enabled=True,
-    list=["proxy1:8080", "proxy2:8080"],
+config = ProxyPoolConfig(
+    proxies=["proxy1:8080", "proxy2:8080"],
 )
-manager = ProxyManager(config)
+pool = ProxyPool(config=config)
 
 async def make_request(url):
-    proxy = await manager.get_next()
+    proxy = await pool.acquire()
     if not proxy:
         raise Exception("No proxies available")
 
     try:
         response = await fetch(url, proxy=proxy)
-        await manager.mark_success(proxy)
+        await pool.mark_success(proxy)
         return response
     except Exception as e:
-        await manager.mark_failed(proxy)
+        await pool.mark_failed(proxy)
         raise e
 
 results = await asyncio.gather(*[make_request(url) for url in urls])
@@ -279,17 +268,16 @@ PROXY_PATTERNS = [
 
 ---
 
-## ProxyValidationError
+## ProxyError
 
 Raised when proxy validation or loading fails:
 
 ```python
-from fastreq.utils.proxies import ProxyValidationError
+from fastreq.utils.proxies import ProxyError
 
 try:
-    config = ProxyConfig(webshare_url="https://invalid-url")
-    manager = ProxyManager(config)
-except ProxyValidationError as e:
+    pool = ProxyPool.from_webshare_text("invalid-text")
+except ProxyError as e:
     print(f"Proxy validation error: {e}")
 ```
 

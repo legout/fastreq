@@ -276,13 +276,13 @@ Returns a copy of the list.
 
 ---
 
-## Using in ParallelRequests
+## Using in FastRequests
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 
 # Built-in user-agent rotation
-client = ParallelRequests(random_user_agent=True)
+client = FastRequests(random_user_agent=True)
 
 async with client:
     # User-agent added automatically

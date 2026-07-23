@@ -8,8 +8,9 @@ This example demonstrates:
 - Verifying response data
 """
 
-from fastreq import fastreq, ReturnType
 import json
+
+from fastreq import ReturnType, fastreq
 
 
 def main():
@@ -39,7 +40,7 @@ def main():
     )
 
     print("\nResults:")
-    for i, (result, payload) in enumerate(zip(results, payloads)):
+    for i, (result, payload) in enumerate(zip(results, payloads, strict=False)):
         print(f"\n--- Request {i + 1} ---")
         print(f"Sent: {payload}")
         if result:

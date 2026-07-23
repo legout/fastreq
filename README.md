@@ -1,40 +1,35 @@
-# fastreq v2.0.2
+# fastreq 3.0.0
 
 [![PyPI Version](https://img.shields.io/pypi/v/fastreq)](https://pypi.org/project/fastreq/)
 [![Python Version](https://img.shields.io/pypi/pyversions/fastreq)](https://pypi.org/project/fastreq/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](https://github.com/legout/fastreq)
-[![Tests](https://img.shields.io/badge/tests-250%2B-brightgreen)](https://github.com/legout/fastreq)
 
-Fast parallel HTTP requests with asyncio, retry logic, proxy rotation, and rate limiting.
+High-performance async HTTP client built on **niquests** (default) and **httpx** (optional).
 
 ## Features
 
-- **Parallel Execution**: Execute multiple HTTP requests concurrently with automatic async/sync handling
-- **Multiple Backends**: Support for niquests, aiohttp, httpx, and requests with automatic backend detection
-- **Retry Logic**: Exponential backoff with jitter for resilient request handling
-- **Proxy Rotation**: Automatic proxy management with support for authenticated proxies
-- **Rate Limiting**: Token bucket algorithm for precise request rate control
-- **User-Agent Rotation**: Built-in user agent string rotation
-- **Cookie Management**: Session-based cookie handling with set/reset methods
-- **Flexible Response Parsing**: Custom parse functions, keyed responses, and graceful failure handling
-- **HTTP/2 Support**: Full HTTP/2 support when using the niquests backend
-- **Streaming**: Efficient streaming of large responses
+- **Two transports**: niquests (default, required) and httpx (optional extra)
+- **HTTP/2 support** via niquests/qh3 (always) and httpx+hyper (when h2 installed)
+- **Explicit proxy pools** with health tracking, cooldown, round-robin rotation, and Webshare import — no free-proxy discovery
+- **Token-bucket rate limiting** — rate token acquired *before* the concurrency slot
+- **Typed retry** — only transient transport errors and configured retryable status codes (429, 500, 502, 503, 504); honors `Retry-After`
+- **User-agent rotation** from a built-in list or custom list
+- **Cookie management** with session-scoped, proxy-isolated storage
+- **Chunked streaming** via callbacks in both transports
+- **Flexible response parsing** — JSON, text, content, response object, or stream
+- **Keyed responses** for dict-style result mapping
 
 ## Installation
 
 ```bash
-# Core library only
+# Core library (niquests is the default and required transport)
 pip install fastreq
 
-# With specific backend (recommended: niquests for HTTP/2 support)
-pip install fastreq[niquests]  # Primary (recommended)
-pip install fastreq[aiohttp]
+# With HTTPX as an alternative transport
 pip install fastreq[httpx]
-pip install fastreq[requests]
 
-# All backends
-pip install fastreq[all]
+# With HTTP/2 support for httpx (niquests supports HTTP/2 natively)
+pip install fastreq[httpx,h2]
 ```
 
 ## Quick Start
@@ -44,17 +39,8 @@ pip install fastreq[all]
 ```python
 from fastreq import fastreq
 
-results = fastreq(
-    urls=[
-        "https://api.github.com/repos/python/cpython",
-        "https://api.github.com/repos/python/cpython/issues",
-        "https://api.github.com/repos/python/cpython/pulls",
-    ],
-    concurrency=3,
-)
-
-for result in results:
-    print(result.json())
+result = fastreq("https://api.github.com/repos/python/cpython")
+print(result)
 ```
 
 ### Async Usage
@@ -64,15 +50,10 @@ import asyncio
 from fastreq import fastreq_async
 
 async def main():
-    results = await fastreq_async(
-        urls=[
-            "https://httpbin.org/delay/1",
-            "https://httpbin.org/delay/2",
-            "https://httpbin.org/delay/3",
-        ],
-        concurrency=5,
-        timeout=10,
-    )
+    results = await fastreq_async([
+        "https://api.github.com/repos/python/cpython",
+        "https://api.github.com/repos/python/cpython/issues",
+    ], concurrency=5)
     return results
 
 results = asyncio.run(main())
@@ -85,79 +66,106 @@ from fastreq import FastRequests
 
 async def main():
     async with FastRequests(concurrency=5) as client:
-        results = await client.request(urls=["https://httpbin.org/get"] * 10)
-    return results
+        result = await client.request("https://api.github.com/repos/python/cpython")
+    return result
 ```
 
-## Documentation
+### Streaming
 
-- **[Full Documentation](https://legout.github.io/fastreq/)** - Complete user guide
-- **[API Reference](docs/reference/api/)** - Detailed API documentation
-- **[How-To Guides](docs/how-to-guides/)** - Practical guides for specific tasks
-- **[Tutorials](docs/tutorials/)** - Step-by-step learning guides
+```python
+from fastreq import FastRequests, ReturnType
 
-## Examples
-
-Visit the [examples](https://github.com/legout/fastreq/tree/main/examples) folder for 17 executable code samples covering all library features, including:
-
-- Basic requests and concurrency tuning
-- Rate limiting and retry configuration
-- Proxy and user-agent rotation
-- POST data and streaming downloads
-- Error handling and backend selection
-- Cookie management and keyed responses
-
-## Development
-
-### Versioning and Publishing
-
-This project uses [semantic versioning](https://semver.org/). To release a new version:
-
-1. Update the version in `pyproject.toml`
-2. Create a version tag:
-
-```bash
-# For patch release (e.g., v2.0.1)
-git tag v2.0.1
-
-# For minor release (e.g., v2.1.0)
-git tag v2.1.0
-
-# For major release (e.g., v3.0.0)
-git tag v3.0.0
+async def main():
+    async with FastRequests() as client:
+        await client.request(
+            "https://example.com/large-file.zip",
+            return_type=ReturnType.STREAM,
+            stream_callback=lambda chunk: print(f"Got {len(chunk)} bytes"),
+        )
 ```
 
-3. Push the tag to trigger the automated workflow:
+### Explicit Proxy Rotation
 
-```bash
-git push origin v2.0.1
+```python
+from fastreq import FastRequests
+
+# Provide a proxy list directly
+proxies = [
+    "http://user:pass@proxy1:8080",
+    "http://user:pass@proxy2:8080",
+]
+
+async with FastRequests(
+    proxies=proxies,
+    random_proxy=True,
+    proxy_selection="round_robin",
+    proxy_cooldown=60.0,
+) as client:
+    result = await client.request("https://api.example.com/data")
 ```
 
-The workflow will:
-- Run tests, linting, and type checking
-- Create a version tag and update CHANGELOG.md
-- Publish to PyPI
+You can also set proxies via the `FASTREQ_PROXIES` environment variable (comma-separated) or import from a Webshare text file via `webshare_file=`.
 
 ## Backend Selection
 
-The library automatically detects and uses the best available backend in this priority order:
+| Backend   | Status   | HTTP/2  | Install                     |
+|-----------|----------|---------|-----------------------------|
+| niquests  | Default  | Native  | `pip install fastreq`       |
+| httpx     | Optional | h2 dep  | `pip install fastreq[httpx]`|
 
-1. **niquests** - Recommended (HTTP/2 support, streaming, async native)
-2. **aiohttp** - Streaming support, async native
-3. **httpx** - Modern sync/async HTTP client
-4. **requests** - Sync-first, widely used
-
-To explicitly select a backend:
+`backend="auto"` (the default) always selects niquests. To use httpx explicitly:
 
 ```python
-from fastreq import fastreq
+FastRequests(backend="httpx")
+```
 
-results = fastreq(
-    urls=["https://httpbin.org/get"],
-    backend="niquests",  # Explicit backend selection
-)
+## Migration from 2.x to 3.0
+
+### Breaking changes
+
+- **Removed backends**: `aiohttp` and `requests` transports are gone. Use `niquests` (default) or `httpx`.
+- **Removed free proxies**: The library no longer discovers or fetches free proxies. Provide explicit proxies via `proxies=`, `FASTREQ_PROXIES`, or `webshare_file=`.
+- **Canonical name**: The project is now `fastreq` (previously `parallel-requests`). `ParallelRequests` remains as a Python alias for backward compatibility.
+
+### What to do
+
+1. If you used `backend="aiohttp"` or `backend="requests"`, switch to the default niquests transport or install `fastreq[httpx]` and use `backend="httpx"`.
+2. If you used `free_proxies=True`, remove it and provide an explicit proxy list or Webshare source instead.
+3. If you imported `ParallelRequests`, it still works as an alias — but the canonical name is `FastRequests`.
+
+## Proxy Policy
+
+fastreq 3.0 does not fetch free proxies. Proxy sources in priority order:
+
+1. `proxies=` constructor argument (list of URLs)
+2. `FASTREQ_PROXIES` environment variable (comma-separated)
+3. `webshare_file=` path to a Webshare plain-text proxy file (`ip:port:user:password` per line)
+
+Failed proxies enter a configurable cooldown. Successful requests clear the cooldown. Selection strategies: `round_robin` (default) or `random`.
+
+## Documentation
+
+- [Full Documentation](https://legout.github.io/fastreq/)
+- [Examples](https://github.com/legout/fastreq/tree/main/examples)
+
+## Development
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and packaging.
+
+```bash
+# Install all dependencies
+uv sync --all-groups
+
+# Run quality gates
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check src
+uv run pytest -q
+
+# Build
+uv build
 ```
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/legout/fastreq/blob/main/LICENSE) for details.
+MIT License — see [LICENSE](https://github.com/legout/fastreq/blob/main/LICENSE).

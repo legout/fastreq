@@ -8,8 +8,9 @@ This example demonstrates:
 - Printing response data
 """
 
-from fastreq import fastreq
 import json
+
+from fastreq import fastreq
 
 
 def main():

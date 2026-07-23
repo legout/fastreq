@@ -8,7 +8,7 @@ The fastreq library is designed around a few core principles that enable flexibl
 
 The library uses the **Strategy pattern** to support multiple HTTP backends through a common interface. This allows you to:
 
-- Swap between niquests, aiohttp, and requests without changing application code
+- Swap between niquests and httpx without changing application code
 - Add new backends without modifying the client logic
 - Test with different backends to find the best fit for your use case
 
@@ -31,12 +31,12 @@ class Backend(ABC):
 
 ### Async-First Design
 
-Python's `asyncio` is the foundation of the library. All operations are asynchronous internally, even when using synchronous backends like requests. The synchronous `fastreq()` function is just a thin wrapper that runs `asyncio.run()` behind the scenes.
+Python's `asyncio` is the foundation of the library. All operations are asynchronous internally. The synchronous `fastreq()` function is just a thin wrapper that runs `asyncio.run()` behind the scenes.
 
 **Why async-first?**
 
 - **Performance**: Non-blocking I/O allows thousands of concurrent requests
-- **Efficiency**: Thread pools only used when necessary (for sync backends)
+- **Efficiency**: Minimal overhead with native async backends
 - **Modern**: Aligns with modern Python async ecosystem
 - **Flexible**: Works seamlessly in async applications and sync contexts
 
@@ -47,7 +47,7 @@ The library is organized into distinct layers:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     User API Layer                         │
-│  fastreq() / fastreq_async()           │
+│  fastreq() / fastreq_async()
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -65,12 +65,12 @@ The library is organized into distinct layers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                   Backend Layer                             │
-│    NiquestsBackend │ AiohttpBackend │ RequestsBackend        │
+│    NiquestsBackend │ HttpxBackend                           │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                 HTTP Libraries                              │
-│    niquests │ aiohttp │ requests                            │
+│    niquests │ httpx                                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,9 +92,8 @@ Located in: `src/fastreq/client.py`
 
 HTTP client adapters that provide a normalized interface:
 
-- **NiquestsBackend**: Full async, HTTP/2 support, streaming
-- **AiohttpBackend**: Mature async library, streaming, no HTTP/2
-- **RequestsBackend**: Synchronous wrapper, familiar API, no HTTP/2
+- **NiquestsBackend**: Default backend, full async, HTTP/2 support, streaming
+- **HttpxBackend**: Optional backend, modern async API, HTTP/2 with h2 extra
 
 All backends implement the `Backend` interface and return `NormalizedResponse` objects.
 
@@ -170,13 +169,8 @@ Try importing niquests
     └── ImportError
          │
          ▼
-Try importing aiohttp
-    ├── Success → Use AiohttpBackend
-    └── ImportError
-         │
-         ▼
-Try importing requests
-    ├── Success → Use RequestsBackend
+Try importing httpx
+    ├── Success → Use HttpxBackend
     └── ImportError
          │
          ▼
@@ -252,7 +246,7 @@ The semaphore ensures concurrency is never exceeded, regardless of token availab
 - Backends can be swapped at runtime
 
 **Trade-offs:**
-- Requires all backends to be async (even requests uses thread wrapper)
+- Requires all backends to be async
 - Some library-specific features might not be exposed
 
 ### Why Token Bucket for Rate Limiting?
@@ -319,8 +313,7 @@ CPU usage is primarily from:
 
 Network behavior depends on backend:
 - **niquests**: HTTP/2 multiplexing, efficient connection reuse
-- **aiohttp**: Connection pooling, HTTP/1.1 pipelining
-- **requests**: Standard HTTP/1.1, connection pooling
+- **httpx**: HTTP/2 multiplexing (with h2 extra), connection pooling
 
 ## Future Extensibility
 

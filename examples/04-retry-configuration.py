@@ -8,7 +8,7 @@ This example demonstrates:
 - Testing with an endpoint that sometimes fails
 """
 
-from fastreq import fastreq, RetryExhaustedError
+from fastreq import fastreq
 
 
 def main():

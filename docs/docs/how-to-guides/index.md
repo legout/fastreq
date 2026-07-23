@@ -11,7 +11,7 @@ This section contains practical guides for solving common tasks with fastreq. Ea
 ### Configuration
 - **[Limit Request Rate](limit-request-rate.md)** - Implement rate limiting with token bucket algorithm
 - **[Handle Retries](handle-retries.md)** - Configure retry logic with exponential backoff
-- **[Select Backend](select-backend.md)** - Choose between niquests, aiohttp, and requests
+- **[Select Backend](select-backend.md)** - Choose between niquests and httpx
 
 ### Advanced Features
 - **[Use Proxies](use-proxies.md)** - Configure proxy rotation and proxy providers

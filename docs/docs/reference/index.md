@@ -6,7 +6,7 @@ Complete API reference and technical documentation for fastreq.
 
 Auto-generated API documentation using mkdocstrings:
 
-- [ParallelRequests Class](api/parallelrequests.md) - Main client class
+- [FastRequests Class](api/fastrequests.md) - Main client class
 - [fastreq()](api/fastreq.md) - Synchronous convenience function
 - [fastreq_async()](api/fastreq_async.md) - Async convenience function
 - [ReturnType](api/returntype.md) - Response parsing options

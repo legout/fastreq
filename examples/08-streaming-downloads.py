@@ -10,7 +10,7 @@ This example demonstrates:
 Note: Streaming support varies by backend
 """
 
-from fastreq import fastreq, FastRequests, ReturnType
+from fastreq import ReturnType, fastreq
 
 
 class ProgressTracker:
@@ -54,7 +54,7 @@ def main():
 
         return callback
 
-    callbacks = [create_callback(i) for i in range(len(urls))]
+    [create_callback(i) for i in range(len(urls))]
 
     fastreq(
         urls=urls,
@@ -68,7 +68,6 @@ def main():
     print("-" * 50)
 
     file_sizes = {}
-    last_sizes = {}
 
     def track_progress(url: str, chunk: bytes) -> None:
         """Track progress for a specific URL."""
@@ -89,7 +88,7 @@ def main():
     )
 
     print("\n\nDownloaded file sizes:")
-    for url, content in zip(urls, results):
+    for url, content in zip(urls, results, strict=False):
         if content:
             print(f"  {url}: {len(content):,} bytes")
 

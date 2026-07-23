@@ -1,6 +1,6 @@
 # Select Backend
 
-Learn how to choose and configure HTTP backends (niquests, httpx, aiohttp, requests).
+Learn how to choose and configure HTTP backends (niquests, httpx).
 
 ## Backend Auto-Detection
 
@@ -17,10 +17,10 @@ results = fastreq(
 ```
 
 **Detection Order:**
-1. **niquests** - HTTP/2 support, streaming, async native
+1. **niquests** - HTTP/2 support, streaming, async native (default)
 2. **httpx** - HTTP/2 support (with h2 extra), modern API, async native
-3. **aiohttp** - Streaming support, async native
-4. **requests** - Sync-first, streaming via thread wrapper
+
+Since niquests is a required dependency, auto-detection will always select niquests unless you explicitly request httpx.
 
 ## Explicit Backend Selection
 
@@ -29,7 +29,7 @@ Force a specific backend:
 ```python
 from fastreq import fastreq
 
-# Use niquests (recommended)
+# Use niquests (default, recommended)
 results = fastreq(
     urls=["https://httpbin.org/get"],
     backend="niquests",
@@ -40,32 +40,20 @@ results = fastreq(
     urls=["https://httpbin.org/get"],
     backend="httpx",
 )
-
-# Use aiohttp
-results = fastreq(
-    urls=["https://httpbin.org/get"],
-    backend="aiohttp",
-)
-
-# Use requests
-results = fastreq(
-    urls=["https://httpbin.org/get"],
-    backend="requests",
-)
 ```
 
 ## Backend Feature Comparison
 
-| Feature              | niquests | httpx | aiohttp | requests |
-|----------------------|----------|-------|---------|----------|
-| HTTP/2 Support       | ✅ Yes  | ✅ Yes* | ❌ No   | ❌ No    |
-| Streaming            | ✅ Yes  | ✅ Yes | ✅ Yes  | ✅ Yes   |
-| Async Native         | ✅ Yes  | ✅ Yes | ✅ Yes  | ❌ No    |
-| Sync Native          | ✅ Yes  | ❌ No  | ❌ No   | ✅ Yes   |
-| Connection Pooling   | ✅ Yes  | ✅ Yes | ✅ Yes  | ✅ Yes   |
-| Cookies              | ✅ Yes  | ✅ Yes | ✅ Yes  | ✅ Yes   |
-| Proxies              | ✅ Yes  | ✅ Yes | ✅ Yes  | ✅ Yes   |
-| Session Reuse        | ✅ Yes  | ✅ Yes | ✅ Yes  | ✅ Yes   |
+| Feature              | niquests | httpx |
+|----------------------|----------|-------|
+| HTTP/2 Support       | ✅ Yes   | ✅ Yes* |
+| Streaming            | ✅ Yes   | ✅ Yes |
+| Async Native         | ✅ Yes   | ✅ Yes |
+| Sync Native          | ✅ Yes   | ❌ No  |
+| Connection Pooling   | ✅ Yes   | ✅ Yes |
+| Cookies              | ✅ Yes   | ✅ Yes |
+| Proxies              | ✅ Yes   | ✅ Yes |
+| Session Reuse        | ✅ Yes   | ✅ Yes |
 
 *HTTP/2 requires `pip install httpx[http2]` (installs the `h2` extra)
 
@@ -73,7 +61,7 @@ results = fastreq(
 
 ### Use niquests When:
 
-- You need HTTP/2 support
+- You need HTTP/2 support out of the box
 - You want the best performance
 - You need both sync and async compatibility
 
@@ -91,7 +79,7 @@ results = fastreq(
 ### Use httpx When:
 
 - You prefer httpx's modern API
-- You need HTTP/2 with aio-like async interface
+- You need HTTP/2 with a clean async interface
 - You're already using httpx in your project
 
 ```python
@@ -110,51 +98,14 @@ async def fetch_with_httpx():
 results = asyncio.run(fetch_with_httpx())
 ```
 
-### Use aiohttp When:
-
-- You're building async/await applications
-- You need efficient async I/O
-- You're already using aiohttp
-
-```python
-import asyncio
-from fastreq import fastreq_async
-
-async def async_fetch():
-    results = await fastreq_async(
-        urls=["https://api.example.com/data"] * 100,
-        backend="aiohttp",
-        concurrency=50,
-    )
-    return results
-
-results = asyncio.run(async_fetch())
-```
-
-### Use requests When:
-
-- You need synchronous code
-- You're working with existing requests-based code
-- Compatibility is more important than performance
-
-```python
-from fastreq import fastreq
-
-# Simple synchronous use
-results = fastreq(
-    urls=["https://api.example.com/data"] * 50,
-    backend="requests",
-)
-```
-
 ## HTTP/2 Support Example
 
-niquests and httpx support HTTP/2 for better performance:
+niquests and httpx both support HTTP/2 for better performance:
 
 ```python
 from fastreq import fastreq
 
-# HTTP/2 with niquests
+# HTTP/2 with niquests (default)
 results = fastreq(
     urls=["https://httpbin.org/get"] * 10,
     backend="niquests",
@@ -165,12 +116,6 @@ results = fastreq(
 results = fastreq(
     urls=["https://httpbin.org/get"] * 10,
     backend="httpx",
-)
-
-# Other backends use HTTP/1.1
-results = fastreq(
-    urls=["https://httpbin.org/get"] * 10,
-    backend="aiohttp",  # HTTP/1.1 only
 )
 ```
 
@@ -189,7 +134,7 @@ from fastreq import fastreq
 
 urls = ["https://httpbin.org/get"] * 100
 
-for backend in ["niquests", "httpx", "aiohttp", "requests"]:
+for backend in ["niquests", "httpx"]:
     start = time.time()
     results = fastreq(
         urls=urls,
@@ -205,20 +150,11 @@ for backend in ["niquests", "httpx", "aiohttp", "requests"]:
 Install with specific backend support:
 
 ```bash
-# All backends (recommended)
-pip install fastreq[all]
+# niquests is included by default
+pip install fastreq
 
-# niquests only (HTTP/2 support)
-pip install fastreq[niquests]
-
-# httpx only (HTTP/2 support with h2 extra)
+# Add httpx support (optional)
 pip install fastreq[httpx]
-
-# aiohttp only
-pip install fastreq[aiohttp]
-
-# requests only
-pip install fastreq[requests]
 ```
 
 ## Checking Backend Availability
@@ -250,13 +186,6 @@ results = fastreq(
 results = fastreq(
     urls=["https://httpbin.org/get"],
     backend="httpx",
-    # Backend can expose additional options
-)
-
-# aiohttp-specific options
-results = fastreq(
-    urls=["https://httpbin.org/get"],
-    backend="aiohttp",
     # Backend can expose additional options
 )
 ```
@@ -321,10 +250,10 @@ except Exception as e:
 try:
     results = fastreq(
         urls=["https://invalid-url.com"],
-        backend="aiohttp",
+        backend="httpx",
     )
 except Exception as e:
-    print(f"aiohttp error: {e}")
+    print(f"httpx error: {e}")
 ```
 
 ## Backend-Specific Timeout Handling
@@ -338,7 +267,7 @@ from fastreq import fastreq
 results = fastreq(
     urls=["https://httpbin.org/delay/5"],
     timeout=3,  # 3 second timeout
-    backend="niquests",  # or httpx, aiohttp, requests
+    backend="niquests",  # or "httpx"
 )
 ```
 
@@ -349,10 +278,10 @@ results = fastreq(
 ```python
 from fastreq import fastreq
 
-# Use auto-detection for production
+# Use auto-detection for production (selects niquests by default)
 results = fastreq(
     urls=["https://api.example.com/data"] * 100,
-    backend="auto",  # Will pick niquests if available
+    backend="auto",  # Will pick niquests
     concurrency=20,
 )
 ```
@@ -360,8 +289,8 @@ results = fastreq(
 ### Development Strategy
 
 ```python
-# During development, test with multiple backends
-for backend in ["niquests", "httpx", "aiohttp", "requests"]:
+# During development, test with both backends
+for backend in ["niquests", "httpx"]:
     try:
         results = fastreq(
             urls=test_urls,
@@ -384,9 +313,9 @@ for backend in ["niquests", "httpx", "aiohttp", "requests"]:
    backend="niquests"  # or "httpx"
    ```
 
-3. **Test All Backends**: Verify compatibility during development
+3. **Test Both Backends**: Verify compatibility during development
    ```python
-   for backend in ["niquests", "httpx", "aiohttp", "requests"]:
+   for backend in ["niquests", "httpx"]:
        # Test code
    ```
 
@@ -398,7 +327,7 @@ for backend in ["niquests", "httpx", "aiohttp", "requests"]:
 
 5. **Use Context Managers**: Reuse sessions for better performance
    ```python
-   async with ParallelRequests() as client:
+   async with FastRequests() as client:
        await client.request(urls=urls)
    ```
 

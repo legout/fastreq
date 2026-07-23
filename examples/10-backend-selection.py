@@ -9,8 +9,8 @@ This example demonstrates:
 """
 
 from fastreq import (
-    fastreq,
     FastRequests,
+    fastreq,
 )
 
 
@@ -41,7 +41,7 @@ def main():
 
     auto_result = test_backend("auto")
     if auto_result["success"]:
-        print(f"✓ Auto-detection successful!")
+        print("✓ Auto-detection successful!")
         print(f"  Processed {auto_result['results']} requests")
     else:
         print(f"✗ Auto-detection failed: {auto_result.get('error')}")
@@ -49,7 +49,7 @@ def main():
     print("\n\nScenario 2: Explicit backend selection")
     print("-" * 50)
 
-    backends = ["niquests", "aiohttp", "requests"]
+    backends = ["niquests", "httpx"]
 
     results = {}
     for backend in backends:
@@ -70,11 +70,9 @@ def main():
     print("│ Backend     │ HTTP/2 │ Async  │ Stream  │")
     print("├─────────────┼────────┼────────┼─────────┤")
     print("│ niquests    │   ✓    │   ✓    │    ✓    │")
-    print("│ aiohttp     │   ✗    │   ✓    │    ✓    │")
-    print("│ requests    │   ✗    │   ✗*   │    ✓†   │")
+    print("│ httpx       │   ✓*   │   ✓    │    ✓    │")
     print("└─────────────┴────────┴────────┴─────────┘")
-    print("* async via thread pool wrapper")
-    print("† streaming via thread pool wrapper")
+    print("* HTTP/2 requires pip install httpx[http2]")
 
     print("\n\nScenario 4: Using FastRequests class")
     print("-" * 50)
@@ -85,15 +83,14 @@ def main():
         verbose=False,
     )
 
-    print(f"Initialized client with auto backend")
+    print("Initialized client with auto backend")
     print(f"Concurrency: {client.concurrency}")
     print(f"Random user agent: {client.random_user_agent}")
 
     print("\n--- Backend Selection Guide ---")
     print("• auto: Automatically select best available (recommended)")
-    print("• niquests: Best choice - HTTP/2 support, native async")
-    print("• aiohttp: Good async alternative, no HTTP/2")
-    print("• requests: Pure synchronous, good for compatibility")
+    print("• niquests: Default choice - HTTP/2 support, native async")
+    print("• httpx: Modern async alternative, HTTP/2 with h2 extra")
 
     print("\n✓ Choose backend based on your requirements")
 

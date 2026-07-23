@@ -5,14 +5,14 @@ A high-performance Python library for executing parallel HTTP requests with buil
 ## Features
 
 - **Parallel Execution**: Execute multiple HTTP requests concurrently with automatic async/sync handling
-- **Multiple Backends**: Support for niquests, aiohttp, and requests with automatic backend detection
+- **Multiple Backends**: Support for niquests (default) and httpx (optional) with automatic backend detection
 - **Retry Logic**: Exponential backoff with jitter for resilient request handling
 - **Proxy Rotation**: Automatic proxy management with support for authenticated proxies
 - **Rate Limiting**: Token bucket algorithm for precise request rate control
 - **User-Agent Rotation**: Built-in user agent string rotation
 - **Cookie Management**: Session-based cookie handling with set/reset methods
 - **Flexible Response Parsing**: Custom parse functions, keyed responses, and graceful failure handling
-- **HTTP/2 Support**: Full HTTP/2 support when using the niquests backend
+- **HTTP/2 Support**: Full HTTP/2 support with niquests (default) and httpx (optional)
 - **Streaming**: Efficient streaming of large responses
 
 ## Installation
@@ -20,13 +20,8 @@ A high-performance Python library for executing parallel HTTP requests with buil
 ```bash
 pip install fastreq
 
-# Install with all backend support
-pip install fastreq[all]
-
-# Install with specific backend
-pip install fastreq[niquests]  # For HTTP/2 support
-pip install fastreq[aiohttp]
-pip install fastreq[requests]
+# Install with optional httpx backend
+pip install fastreq[httpx]
 ```
 
 ## Quick Start
@@ -98,9 +93,8 @@ Visit the [examples](https://github.com/legout/fastreq/tree/main/examples) folde
 
 The library automatically detects and uses the best available backend in this priority order:
 
-1. **niquests** - Recommended (HTTP/2 support, streaming, async native)
-2. **aiohttp** - Streaming support, async native
-3. **requests** - Sync-first, streaming via thread wrapper
+1. **niquests** - Default (HTTP/2 support, streaming, async native)
+2. **httpx** - Optional (HTTP/2 support with h2 extra, modern async API)
 
 To explicitly select a backend:
 
@@ -109,7 +103,7 @@ from fastreq import fastreq
 
 results = fastreq(
     urls=["https://httpbin.org/get"],
-    backend="niquests",  # Explicit backend selection
+    backend="niquests",  # or "httpx"
 )
 ```
 

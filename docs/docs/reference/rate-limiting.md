@@ -106,12 +106,12 @@ tokens = min(burst, tokens + elapsed * requests_per_second)
 
 ## Using Rate Limiting
 
-### In ParallelRequests Client
+### In FastRequests Client
 
 ```python
-from fastreq import ParallelRequests
+from fastreq import FastRequests
 
-client = ParallelRequests(
+client = FastRequests(
     rate_limit=10.0,      # 10 requests per second
     rate_limit_burst=5,   # Allow bursts of 5
     concurrency=20,

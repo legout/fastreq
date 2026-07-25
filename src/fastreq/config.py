@@ -16,7 +16,8 @@ class GlobalConfig:
     Can be loaded from environment variables or created programmatically.
 
     Environment variables (prefix FASTREQ_):
-        FASTREQ_BACKEND: Backend to use ("auto", "niquests", "httpx")
+        FASTREQ_BACKEND: Backend to use ("auto", "niquests", "httpx", "curl_cffi")
+        FASTREQ_IMPERSONATE: Browser impersonation target for curl_cffi backend
         FASTREQ_CONCURRENCY: Default concurrency limit
         FASTREQ_MAX_RETRIES: Default max retries
         FASTREQ_RATE_LIMIT: Rate limit (requests per second)
@@ -28,6 +29,7 @@ class GlobalConfig:
 
     Attributes:
         backend: Default backend selection
+        impersonate: Browser impersonation target for the curl_cffi backend
         default_concurrency: Default concurrency limit
         default_max_retries: Default maximum retry attempts
         rate_limit: Rate limit in requests per second (None for no limit)
@@ -39,6 +41,7 @@ class GlobalConfig:
     """
 
     backend: str = "auto"
+    impersonate: str | None = None
     default_concurrency: int = 20
     default_max_retries: int = 3
     rate_limit: float | None = None
@@ -74,6 +77,7 @@ class GlobalConfig:
 
         return cls(
             backend=os.getenv(f"{prefix}BACKEND", "auto"),
+            impersonate=os.getenv(f"{prefix}IMPERSONATE"),
             default_concurrency=get_int("CONCURRENCY", 20),
             default_max_retries=get_int("MAX_RETRIES", 3),
             rate_limit=get_float("RATE_LIMIT", None),
@@ -95,6 +99,7 @@ class GlobalConfig:
         """
         env: dict[str, str] = {
             f"{prefix}BACKEND": self.backend,
+            f"{prefix}IMPERSONATE": self.impersonate or "",
             f"{prefix}CONCURRENCY": str(self.default_concurrency),
             f"{prefix}MAX_RETRIES": str(self.default_max_retries),
             f"{prefix}RATE_LIMIT": str(self.rate_limit) if self.rate_limit else "",

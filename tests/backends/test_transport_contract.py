@@ -20,6 +20,15 @@ from tests.conftest import (
     text_response,
 )
 
+# Backends under contract. curl_cffi is optional; include it when installed.
+_BACKENDS = ["niquests", "httpx"]
+try:
+    import curl_cffi  # noqa: F401
+
+    _BACKENDS.append("curl_cffi")
+except ImportError:
+    pass
+
 
 @pytest.fixture
 async def server() -> AsyncIterator[LocalTestServer]:
@@ -31,8 +40,12 @@ async def server() -> AsyncIterator[LocalTestServer]:
 
 
 @pytest.fixture
-def make_client():
-    """Factory for creating and cleaning up FastRequests clients."""
+async def make_client():
+    """Factory for creating and cleaning up FastRequests clients.
+
+    Cleanup runs in the test's own event loop — some transports (curl_cffi)
+    bind sessions to the loop that created them.
+    """
     clients: list[FastRequests] = []
 
     async def _create(backend: str = "auto", **kwargs) -> FastRequests:
@@ -43,19 +56,14 @@ def make_client():
 
     yield _create
 
-    async def _cleanup():
-        for c in clients:
-            await c.close()
-
-    import asyncio
-
-    asyncio.run(_cleanup())
+    for c in clients:
+        await c.close()
 
 
 class TestTransportContract:
     """Contract tests that must pass for BOTH niquests and httpx backends."""
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_normal_json_request(
         self, backend: str, server: LocalTestServer, make_client
     ) -> None:
@@ -68,7 +76,7 @@ class TestTransportContract:
         )
         assert result == {"key": "value"}
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_text_response(self, backend: str, server: LocalTestServer, make_client) -> None:
         """Both transports return text content."""
         server.add_route("GET", "/text", text_response("hello world"))
@@ -79,7 +87,7 @@ class TestTransportContract:
         )
         assert result == "hello world"
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_content_bytes(self, backend: str, server: LocalTestServer, make_client) -> None:
         """Both transports return raw bytes."""
         server.add_route("GET", "/raw", MockResponse(body=b"\x00\x01\x02\x03"))
@@ -90,7 +98,7 @@ class TestTransportContract:
         )
         assert result == b"\x00\x01\x02\x03"
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_response_object(
         self, backend: str, server: LocalTestServer, make_client
     ) -> None:
@@ -105,7 +113,7 @@ class TestTransportContract:
         assert result.is_json
         assert result.json_data == {"ok": True}
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_post_json_body(self, backend: str, server: LocalTestServer, make_client) -> None:
         """Both transports can POST JSON bodies."""
         server.add_route("POST", "/echo", json_response({"received": True}))
@@ -118,7 +126,7 @@ class TestTransportContract:
         )
         assert result == {"received": True}
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_status_code_passthrough(
         self, backend: str, server: LocalTestServer, make_client
     ) -> None:
@@ -132,7 +140,7 @@ class TestTransportContract:
         assert result is not None
         assert result.status_code == 404
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_cookies_sent(self, backend: str, server: LocalTestServer, make_client) -> None:
         """Both transports send session cookies."""
         server.add_route("GET", "/cookie", json_response({"ok": True}))
@@ -145,7 +153,7 @@ class TestTransportContract:
         cookie_header = req_headers.get("cookie", "")
         assert "test_cookie=abc123" in str(cookie_header)
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_streaming_chunks(
         self, backend: str, server: LocalTestServer, make_client
     ) -> None:
@@ -163,7 +171,7 @@ class TestTransportContract:
         assert len(received) >= 1
         assert b"".join(received) == b"chunk1-chunk2-chunk3"
 
-    @pytest.mark.parametrize("backend", ["niquests", "httpx"])
+    @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_backend_closes_cleanly(self, backend: str, server: LocalTestServer) -> None:
         """Both transports close without errors."""
         server.add_route("GET", "/ok", json_response({"ok": True}))

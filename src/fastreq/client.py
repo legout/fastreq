@@ -30,7 +30,7 @@ from .utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
 from .utils.retry import DEFAULT_RETRYABLE_STATUSES, RetryConfig, RetryStrategy
 
 # Type alias for backend selection
-BackendName = Literal["auto", "niquests", "httpx"]
+BackendName = Literal["auto", "niquests", "httpx", "curl_cffi"]
 
 # Removed backend names that raise a migration error
 _REMOVED_BACKENDS = {"aiohttp", "requests"}
@@ -98,14 +98,15 @@ def _parse_retry_after(value: str) -> float | None:
         return None
 
 
-def _create_backend(backend: str, http2: bool) -> Backend:
+def _create_backend(backend: str, http2: bool, impersonate: str | None = None) -> Backend:
     """Create a transport instance from the typed backend selection.
 
     This is a closed factory — never uses dynamic module discovery.
 
     Args:
-        backend: Backend name ("auto", "niquests", "httpx")
+        backend: Backend name ("auto", "niquests", "httpx", "curl_cffi")
         http2: Whether HTTP/2 is requested
+        impersonate: Browser impersonation target (curl_cffi backend only)
 
     Returns:
         Backend instance
@@ -145,8 +146,20 @@ def _create_backend(backend: str, http2: bool) -> Backend:
                 config_key="backend",
             ) from e
 
+    if backend == "curl_cffi":
+        try:
+            from .backends.curl_cffi import CurlCffiBackend
+
+            return CurlCffiBackend(impersonate=impersonate)
+        except ImportError as e:
+            raise ConfigurationError(
+                "Backend 'curl_cffi' requires the optional curl_cffi dependency. "
+                "Install with: pip install fastreq[curl]",
+                config_key="backend",
+            ) from e
+
     raise ConfigurationError(
-        f"Unknown backend '{backend}'. Supported: 'auto', 'niquests', 'httpx'.",
+        f"Unknown backend '{backend}'. Supported: 'auto', 'niquests', 'httpx', 'curl_cffi'.",
         config_key="backend",
     )
 
@@ -158,12 +171,16 @@ class FastRequests:
     acquires a rate token before occupying a concurrency slot.
 
     Args:
-        backend: Backend to use ("auto", "niquests", "httpx")
+        backend: Backend to use ("auto", "niquests", "httpx", "curl_cffi")
         concurrency: Maximum number of concurrent requests
         max_retries: Maximum retry attempts per request
         rate_limit: Requests per second (None for no limit)
         rate_limit_burst: Burst size for rate limiter
         http2: Enable HTTP/2 (if supported by backend)
+        impersonate: Browser impersonation target for the curl_cffi backend
+            (e.g. "chrome", "chrome131", "random"; None disables it).
+            When set, user-agent rotation is disabled automatically because
+            curl_cffi supplies the browser-matching User-Agent itself.
         follow_redirects: Follow HTTP redirects
         verify_ssl: Verify SSL certificates
         timeout: Default timeout per request (seconds)
@@ -189,6 +206,7 @@ class FastRequests:
         rate_limit: float | None = None,
         rate_limit_burst: int = 5,
         http2: bool = True,
+        impersonate: str | None = None,
         follow_redirects: bool = True,
         verify_ssl: bool = True,
         timeout: float | None = None,
@@ -208,11 +226,14 @@ class FastRequests:
         # (caught early with migration guidance)
 
         self.backend_name = backend
+        self.impersonate = impersonate
         self.concurrency = concurrency
         self.follow_redirects = follow_redirects
         self.verify_ssl = verify_ssl
         self.timeout = timeout
-        self.random_user_agent = random_user_agent
+        # Browser impersonation provides its own browser-matching User-Agent;
+        # rotating a mismatched UA would contradict the TLS fingerprint.
+        self.random_user_agent = random_user_agent if impersonate is None else False
         self.random_proxy = random_proxy
         self.debug = debug
         self.verbose = verbose
@@ -223,7 +244,7 @@ class FastRequests:
         self._backend: Backend | None = None
         self._cookies: dict[str, str] = cookies.copy() if cookies else {}
         self._rate_limiter: AsyncRateLimiter | None = None
-        self._header_manager = HeaderManager(random_user_agent=random_user_agent)
+        self._header_manager = HeaderManager(random_user_agent=self.random_user_agent)
         self._default_headers = headers or {}
 
         retry_config = RetryConfig(max_retries=max_retries)
@@ -280,6 +301,7 @@ class FastRequests:
         self._backend = _create_backend(
             backend=self.backend_name,  # type: ignore[arg-type]
             http2=self._http2,
+            impersonate=self.impersonate,
         )
         logger.info(f"Using backend: {self._backend.name}")
 
@@ -634,6 +656,7 @@ def fastreq(
     rate_limit: float | None = None,
     rate_limit_burst: int = 5,
     http2: bool = True,
+    impersonate: str | None = None,
     follow_redirects: bool = True,
     verify_ssl: bool = True,
     timeout: float | None = None,
@@ -708,6 +731,7 @@ def fastreq(
             rate_limit=rate_limit,
             rate_limit_burst=rate_limit_burst,
             http2=http2,
+            impersonate=impersonate,
             follow_redirects=follow_redirects,
             verify_ssl=verify_ssl,
             timeout=timeout,
@@ -751,6 +775,7 @@ async def fastreq_async(
     rate_limit: float | None = None,
     rate_limit_burst: int = 5,
     http2: bool = True,
+    impersonate: str | None = None,
     follow_redirects: bool = True,
     verify_ssl: bool = True,
     timeout: float | None = None,
@@ -821,6 +846,7 @@ async def fastreq_async(
         rate_limit=rate_limit,
         rate_limit_burst=rate_limit_burst,
         http2=http2,
+        impersonate=impersonate,
         follow_redirects=follow_redirects,
         verify_ssl=verify_ssl,
         timeout=timeout,

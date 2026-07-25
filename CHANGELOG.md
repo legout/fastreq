@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-25
+
+### Added
+
+- New optional `curl_cffi` backend (`pip install fastreq[curl]`) with browser
+  TLS/JA3 impersonation via the `impersonate` parameter (explicit target like
+  `"chrome131"`, `"random"`, or `None`). Defeats bot detection that blocks
+  plain HTTP clients.
+- `impersonate` parameter on `FastRequests`, `fastreq()`, and
+  `fastreq_async()`; `FASTREQ_IMPERSONATE` environment variable.
+- User-agent rotation is disabled automatically when `impersonate` is set
+  (curl_cffi supplies the browser-matching User-Agent).
+- curl_cffi included in the shared hermetic transport contract tests.
+
 ## [2.0.1] - 2025-01-02
 
 ### Added

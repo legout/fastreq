@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from .base import Backend, NormalizedResponse, RequestConfig, TransportKey
 
 if TYPE_CHECKING:
+    from .curl_cffi import CurlCffiBackend
     from .httpx import HttpxBackend
     from .niquests import NiquestsBackend
 
@@ -13,10 +14,12 @@ if TYPE_CHECKING:
 _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "NiquestsBackend": ("niquests", "NiquestsBackend"),
     "HttpxBackend": ("httpx", "HttpxBackend"),
+    "CurlCffiBackend": ("curl_cffi", "CurlCffiBackend"),
 }
 
 __all__ = [
     "Backend",
+    "CurlCffiBackend",
     "HttpxBackend",
     "NiquestsBackend",
     "NormalizedResponse",

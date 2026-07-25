@@ -1,6 +1,6 @@
 [project]
 name = "fastreq"
-version = "3.0.0"
+version = "3.1.0"
 description = "High-performance async HTTP client built on niquests and httpx"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,9 @@ dependencies = [
 [project.optional-dependencies]
 httpx = ["httpx>=0.28.0"]
 h2 = ["h2>=4.0.0"]
+curl = [
+    "curl-cffi>=0.13.0",
+]
 
 [dependency-groups]
 dev = [
@@ -25,6 +28,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=5.0.0",
+    "curl-cffi>=0.13.0",
 ]
 lint = [
     "ruff>=0.8.0",

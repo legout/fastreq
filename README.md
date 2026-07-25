@@ -112,12 +112,31 @@ You can also set proxies via the `FASTREQ_PROXIES` environment variable (comma-s
 |-----------|----------|---------|-----------------------------|
 | niquests  | Default  | Native  | `pip install fastreq`       |
 | httpx     | Optional | h2 dep  | `pip install fastreq[httpx]`|
+| curl_cffi | Optional | Native  | `pip install fastreq[curl]` |
 
-`backend="auto"` (the default) always selects niquests. To use httpx explicitly:
+`backend="auto"` (the default) always selects niquests. To use another backend explicitly:
 
 ```python
 FastRequests(backend="httpx")
 ```
+
+### Browser impersonation (curl_cffi backend)
+
+The `curl_cffi` backend can replicate a real browser's TLS fingerprint
+(JA3/JA4), HTTP/2 settings, and default headers via the `impersonate`
+parameter. This defeats bot detection that blocks plain HTTP clients:
+
+```python
+async with FastRequests(backend="curl_cffi", impersonate="chrome") as client:
+    result = await client.request("https://example.com/bot-protected")
+
+# or a random recent browser target per client
+FastRequests(backend="curl_cffi", impersonate="random")
+```
+
+When `impersonate` is set, user-agent rotation is disabled automatically —
+curl_cffi supplies the browser-matching User-Agent itself. One session is
+kept per proxy route, so cookies stay isolated between proxies.
 
 ## Migration from 2.x to 3.0
 

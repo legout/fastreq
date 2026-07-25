@@ -49,7 +49,7 @@ from fastreq.exceptions import (
     ValidationError,
 )
 
-__version__ = "3.0.0"
+__version__ = "3.1.1"
 
 __all__ = [
     "Backend",

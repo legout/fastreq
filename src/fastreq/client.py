@@ -25,6 +25,7 @@ from .exceptions import (
 )
 from .utils.headers import HeaderManager
 from .utils.logging import configure_logging
+from .utils.progress import ProgressCallback, ProgressOption, gather_with_progress
 from .utils.proxies import ProxyPool, ProxyPoolConfig, ProxySelection
 from .utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
 from .utils.retry import DEFAULT_RETRYABLE_STATUSES, RetryConfig, RetryStrategy
@@ -354,6 +355,8 @@ class FastRequests:
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
         stream_callback: Callable[[bytes], Any] | None = ...,
+        progress: ProgressOption = ...,
+        progress_callback: ProgressCallback | None = ...,
         keys: None = ...,
     ) -> Any: ...
 
@@ -374,6 +377,8 @@ class FastRequests:
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
         stream_callback: Callable[[bytes], Any] | None = ...,
+        progress: ProgressOption = ...,
+        progress_callback: ProgressCallback | None = ...,
         keys: list[str] = ...,
     ) -> dict[str, Any]: ...
 
@@ -394,6 +399,8 @@ class FastRequests:
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
         stream_callback: Callable[[bytes], Any] | None = ...,
+        progress: ProgressOption = ...,
+        progress_callback: ProgressCallback | None = ...,
         keys: None = ...,
     ) -> list[Any]: ...
 
@@ -414,6 +421,8 @@ class FastRequests:
         verify_ssl: bool | None = ...,
         parse_func: Callable[[Any], T] | None = ...,
         stream_callback: Callable[[bytes], Any] | None = ...,
+        progress: ProgressOption = ...,
+        progress_callback: ProgressCallback | None = ...,
         keys: list[str] | None = ...,
     ) -> Any: ...
 
@@ -433,6 +442,8 @@ class FastRequests:
         verify_ssl: bool | None = None,
         parse_func: Callable[[Any], Any] | None = None,
         stream_callback: Callable[[bytes], Any] | None = None,
+        progress: ProgressOption = None,
+        progress_callback: ProgressCallback | None = None,
         keys: list[str] | None = None,
     ) -> Any:
         """Make parallel HTTP requests.
@@ -451,6 +462,9 @@ class FastRequests:
             verify_ssl: Override default verify_ssl setting.
             parse_func: Custom function to parse each response.
             stream_callback: Callback for streaming responses (receives chunks).
+            progress: Optional ``"rich"``/``"tqdm"`` progress bar, or ``True``
+                to auto-select an installed optional backend.
+            progress_callback: Optional callback receiving ``(completed, total)``.
             keys: Keys for dict return (must match urls length).
 
         Returns:
@@ -507,7 +521,12 @@ class FastRequests:
             for req in request_options
         ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await gather_with_progress(
+            tasks,
+            mode=progress,
+            callback=progress_callback,
+            description="HTTP requests",
+        )
 
         failures: dict[str, FailureDetails] = {}
         processed_results: list[Any] = []
@@ -679,6 +698,8 @@ def fastreq(
     return_type: ReturnType | str = ReturnType.JSON,
     parse_func: Callable[[Any], Any] | None = None,
     stream_callback: Callable[[bytes], Any] | None = None,
+    progress: ProgressOption = None,
+    progress_callback: ProgressCallback | None = None,
     keys: list[str] | None = None,
 ) -> Any:
     """Synchronous convenience function for parallel requests.
@@ -715,6 +736,9 @@ def fastreq(
         return_type: How to parse the response
         parse_func: Custom function to parse each response
         stream_callback: Callback for streaming responses
+        progress: Optional ``"rich"``/``"tqdm"`` progress bar, or ``True``
+            to auto-select an installed optional backend.
+        progress_callback: Optional callback receiving ``(completed, total)``.
         keys: Keys for dict return (must match urls length)
 
     Returns:
@@ -760,6 +784,8 @@ def fastreq(
                 return_type=return_type,
                 parse_func=parse_func,
                 stream_callback=stream_callback,
+                progress=progress,
+                progress_callback=progress_callback,
                 keys=keys,
             )
 
@@ -798,6 +824,8 @@ async def fastreq_async(
     return_type: ReturnType | str = ReturnType.JSON,
     parse_func: Callable[[Any], Any] | None = None,
     stream_callback: Callable[[bytes], Any] | None = None,
+    progress: ProgressOption = None,
+    progress_callback: ProgressCallback | None = None,
     keys: list[str] | None = None,
 ) -> Any:
     """Async convenience function for parallel requests.
@@ -832,6 +860,9 @@ async def fastreq_async(
         return_type: How to parse the response
         parse_func: Custom function to parse each response
         stream_callback: Callback for streaming responses
+        progress: Optional ``"rich"``/``"tqdm"`` progress bar, or ``True``
+            to auto-select an installed optional backend.
+        progress_callback: Optional callback receiving ``(completed, total)``.
         keys: Keys for dict return (must match urls length)
 
     Returns:
@@ -875,6 +906,8 @@ async def fastreq_async(
             return_type=return_type,
             parse_func=parse_func,
             stream_callback=stream_callback,
+            progress=progress,
+            progress_callback=progress_callback,
             keys=keys,
         )
 

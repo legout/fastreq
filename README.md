@@ -1,4 +1,4 @@
-# fastreq 3.0.0
+# fastreq 3.2.0
 
 [![PyPI Version](https://img.shields.io/pypi/v/fastreq)](https://pypi.org/project/fastreq/)
 [![Python Version](https://img.shields.io/pypi/pyversions/fastreq)](https://pypi.org/project/fastreq/)
@@ -18,6 +18,7 @@ High-performance async HTTP client built on **niquests** (default) and **httpx**
 - **Chunked streaming** via callbacks in both transports
 - **Flexible response parsing** — JSON, text, content, response object, or stream
 - **Keyed responses** for dict-style result mapping
+- **Optional progress reporting** via Rich, tqdm, or a headless callback
 
 ## Installation
 
@@ -30,6 +31,10 @@ pip install fastreq[httpx]
 
 # With HTTP/2 support for httpx (niquests supports HTTP/2 natively)
 pip install fastreq[httpx,h2]
+
+# Optional terminal progress bars
+pip install 'fastreq[progress-rich]'
+pip install 'fastreq[progress-tqdm]'
 ```
 
 ## Quick Start
@@ -68,6 +73,22 @@ async def main():
     async with FastRequests(concurrency=5) as client:
         result = await client.request("https://api.github.com/repos/python/cpython")
     return result
+```
+
+### Optional Progress
+
+Progress reporting is disabled by default and adds no core dependency. Choose
+Rich or tqdm explicitly, or use `True` to select an installed backend:
+
+```python
+async with FastRequests(concurrency=5) as client:
+    results = await client.request(urls, progress="rich")
+
+# Headless/CI-friendly progress callback
+results = await fastreq_async(
+    urls,
+    progress_callback=lambda completed, total: print(f"{completed}/{total}"),
+)
 ```
 
 ### Streaming

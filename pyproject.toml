@@ -1,6 +1,6 @@
 [project]
 name = "fastreq"
-version = "3.1.1"
+version = "3.2.0"
 description = "High-performance async HTTP client built on niquests and httpx"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 httpx = ["httpx>=0.28.0"]
 h2 = ["h2>=4.0.0"]
+progress-rich = ["rich>=13.0.0"]
+progress-tqdm = ["tqdm>=4.66.0"]
 curl = [
     "curl-cffi>=0.13.0",
 ]

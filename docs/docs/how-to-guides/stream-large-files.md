@@ -331,6 +331,6 @@ results = fastreq(
 
 ## See Also
 
-- **[Make Parallel Requests](make-fastreq.md)** - Basic request configuration
+- **[Make Parallel Requests](make-parallel-requests.md)** - Basic request configuration
 - **[Limit Request Rate](limit-request-rate.md)** - Control download rate
 - **[API Reference](../reference/configuration.md)** - Configuration options

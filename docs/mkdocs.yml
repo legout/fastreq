@@ -65,6 +65,8 @@ nav:
     - Stream Large Files: how-to-guides/stream-large-files.md
     - POST JSON Data: how-to-guides/post-json-data.md
     - Select Backend: how-to-guides/select-backend.md
+    - Impersonate a Browser: how-to-guides/use-impersonate.md
+    - Show Progress Bars: how-to-guides/progress-reporting.md
     - Debug Issues: how-to-guides/debug-issues.md
     - Handle Cookies: how-to-guides/handle-cookies.md
   - API Reference:

@@ -386,6 +386,6 @@ results = fastreq(
 
 ## See Also
 
-- **[Make Parallel Requests](make-fastreq.md)** - Request configuration
+- **[Make Parallel Requests](make-parallel-requests.md)** - Request configuration
 - **[Post JSON Data](post-json-data.md)** - Authentication examples
 - **[API Reference](../reference/api/fastrequests.md)** - Client documentation

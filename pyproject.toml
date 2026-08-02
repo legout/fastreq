@@ -31,6 +31,10 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=5.0.0",
     "curl-cffi>=0.13.0",
+    "zensical>=0.0.52",
+    "mkdocstrings>=1.0.6",
+    "mkdocstrings-python>=2.0.5",
+    "griffe>=2.1.0",
 ]
 lint = [
     "ruff>=0.8.0",
@@ -38,13 +42,6 @@ lint = [
 typecheck = [
     "ty>=0.0.1a7",
 ]
-docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings>=0.25.0",
-    "mkdocstrings-python>=1.10.0",
-]
-
 [build-system]
 requires = ["uv_build>=0.8.0,<0.12"]
 build-backend = "uv_build"

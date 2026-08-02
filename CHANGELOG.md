@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-01
+
+### Added
+
+- Optional progress reporting for batch operations via the new
+  `progress-rich` (`rich`) and `progress-tqdm` (`tqdm`) extras. Both are
+  opt-in (`pip install fastreq[progress-rich]`), keeping the core
+  dependency surface unchanged.
+
+### Fixed
+
+- `version-bump.yml` workflow now correctly detects version changes by
+  comparing against `HEAD~1` instead of `origin/main` (the previous logic
+  always saw the new version on `origin/main` after the push completed,
+  silently skipping tag creation and blocking PyPI releases).
+
 ## [3.1.1] - 2026-07-25
 
 ### Fixed

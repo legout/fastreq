@@ -31,8 +31,11 @@ jobs:
         id: check_version
         if: steps.changed.outputs.changed == 'true'
         run: |
-          git fetch origin main --quiet
-          OLD_VERSION=$(git show origin/main:pyproject.toml | grep "^version = " | sed 's/version = "\(.*\)"/\1/')
+          # Compare against the previous commit (HEAD~1), not origin/main —
+          # by the time this workflow runs, origin/main already points at the
+          # new commit, so comparing against it always shows no change and
+          # the tag step gets skipped.
+          OLD_VERSION=$(git show HEAD~1:pyproject.toml | grep "^version = " | sed 's/version = "\(.*\)"/\1/')
           NEW_VERSION=$(grep "^version = " pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT

@@ -11,9 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -41,19 +39,16 @@ jobs:
         working-directory: docs
         run: uv run zensical build -f mkdocs.yml
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/site
+      - name: Verify build output exists
+        working-directory: docs
+        run: test -f site/index.html && echo "site OK" || (echo "site missing" && exit 1)
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/site
+          publish_branch: gh-pages
+          keep_files: false
+          force_orphan: true
+          commit_message: "docs: rebuild site (${{ github.sha }})"

@@ -5,7 +5,7 @@ This section contains practical guides for solving common tasks with fastreq. Ea
 ## Available Guides
 
 ### Request Basics
-- **[Make Parallel Requests](make-fastreq.md)** - Create parallel requests with various configurations
+- **[Make Parallel Requests](make-parallel-requests.md)** - Create parallel requests with various configurations
 - **[Post JSON Data](post-json-data.md)** - Handle POST, PUT, and PATCH requests
 
 ### Configuration

@@ -1,27 +1,36 @@
 # fastreq
 
-A high-performance Python library for executing parallel HTTP requests with built-in retry logic, proxy rotation, rate limiting, and support for multiple HTTP backends.
+A high-performance async HTTP client built on [niquests](https://niquests.readthedocs.io/) and [httpx](https://www.python-httpx.org/), with optional [curl_cffi](https://github.com/yifeikong/curl_cffi) for browser TLS impersonation. Concurrent execution, exponential-backoff retries, proxy rotation, rate limiting, user-agent rotation, and flexible response parsing — sync or async.
 
 ## Features
 
-- **Parallel Execution**: Execute multiple HTTP requests concurrently with automatic async/sync handling
-- **Multiple Backends**: Support for niquests (default) and httpx (optional) with automatic backend detection
-- **Retry Logic**: Exponential backoff with jitter for resilient request handling
-- **Proxy Rotation**: Automatic proxy management with support for authenticated proxies
-- **Rate Limiting**: Token bucket algorithm for precise request rate control
-- **User-Agent Rotation**: Built-in user agent string rotation
-- **Cookie Management**: Session-based cookie handling with set/reset methods
-- **Flexible Response Parsing**: Custom parse functions, keyed responses, and graceful failure handling
-- **HTTP/2 Support**: Full HTTP/2 support with niquests (default) and httpx (optional)
-- **Streaming**: Efficient streaming of large responses
+- **Concurrent Execution**: Run many requests in parallel with a single async/sync gate. Sync wrapper uses `asyncio.run` under the hood; async wrapper returns an awaitable.
+- **Three Backends**: `niquests` (default, required), `httpx` (optional, `pip install fastreq[httpx]`), `curl_cffi` (optional, `pip install fastreq[curl]`). Auto-detection picks `niquests`.
+- **Retry with Backoff**: Exponential backoff with jitter, configurable per-request `retry_on` / `dont_retry_on` exception lists.
+- **Proxy Rotation**: Explicit proxy pools with health tracking and cooldown. Optional Webshare.io text-file integration.
+- **Rate Limiting**: Token bucket — a rate token is acquired *before* a concurrency slot, so rate limits are honored even under burst.
+- **Browser TLS Impersonation**: `impersonate="chrome131"` etc. via curl_cffi to defeat JA3-based bot detection.
+- **HTTP/2**: Built-in to niquests; opt-in for httpx via `pip install fastreq[h2]`.
+- **User-Agent Rotation**: Disabled automatically when `impersonate` is set (curl_cffi supplies the matching UA).
+- **Cookie Management**: Session-based `set_cookies()` / `reset_cookies()`.
+- **Response Parsing**: JSON, text, content, response, stream, or a custom `parse_func`.
+- **Graceful Failure**: `return_none_on_failure=True` and `keys=` for dict-mapped results.
+- **Optional Progress Reporting**: `pip install fastreq[progress-rich]` (rich) or `pip install fastreq[progress-tqdm]` (tqdm).
 
 ## Installation
 
 ```bash
+# Core: niquests-backed, sync + async
 pip install fastreq
 
-# Install with optional httpx backend
-pip install fastreq[httpx]
+# Add httpx backend (HTTP/2 with the [h2] extra)
+pip install fastreq[httpx,h2]
+
+# Add curl_cffi backend (browser TLS impersonation)
+pip install fastreq[curl]
+
+# Optional progress bars
+pip install fastreq[progress-rich]   # or progress-tqdm
 ```
 
 ## Quick Start
@@ -29,7 +38,6 @@ pip install fastreq[httpx]
 ```python
 from fastreq import fastreq
 
-# Make parallel requests
 results = fastreq(
     urls=[
         "https://api.github.com/repos/python/cpython",
@@ -39,8 +47,8 @@ results = fastreq(
     concurrency=3,
 )
 
-for result in results:
-    print(result.json())
+for r in results:
+    print(r.json()["full_name"])
 ```
 
 ## Async Usage
@@ -50,63 +58,48 @@ import asyncio
 from fastreq import fastreq_async
 
 async def main():
-    results = await fastreq_async(
-        urls=[
-            "https://httpbin.org/delay/1",
-            "https://httpbin.org/delay/2",
-            "https://httpbin.org/delay/3",
-        ],
+    return await fastreq_async(
+        urls=["https://httpbin.org/delay/1"] * 3,
         concurrency=5,
         timeout=10,
     )
-    return results
 
-results = asyncio.run(main())
+asyncio.run(main())
+```
+
+## When to Reach for curl_cffi
+
+```python
+from fastreq import fastreq
+
+# Impersonate a real Chrome to bypass JA3-based bot detection
+results = fastreq(
+    urls=["https://finance.yahoo.com/quote/AAPL"] * 20,
+    backend="curl_cffi",
+    impersonate="chrome131",   # or "random"
+    concurrency=10,
+)
 ```
 
 ## Quick Links
 
 ### New Users
-- [Getting Started Tutorial](tutorials/getting-started.md) - Installation and your first parallel requests
-- [Basic Examples](https://github.com/legout/fastreq/tree/main/examples) - Runnable code samples
+
+- [Getting Started Tutorial](tutorials/getting-started.md) — install + first parallel requests
+- [Examples on GitHub](https://github.com/legout/fastreq/tree/main/examples) — runnable scripts
 
 ### Common Tasks
-- [Make Parallel Requests](how-to-guides/make-fastreq.md)
+
+- [Make Parallel Requests](how-to-guides/make-parallel-requests.md)
 - [Handle Rate Limits](how-to-guides/limit-request-rate.md)
 - [Configure Retries](how-to-guides/handle-retries.md)
 - [Use Proxies](how-to-guides/use-proxies.md)
+- [Select a Backend](how-to-guides/select-backend.md)
+- [Impersonate a Browser](how-to-guides/use-impersonate.md)
+- [Show Progress Bars](how-to-guides/progress-reporting.md)
 
 ### API Reference
+
 - [API Overview](reference/index.md)
-- [FastRequests Class](reference/api/fastrequests.md)
-- [Configuration Options](reference/configuration.md)
-
-### Advanced Topics
-- [Architecture](explanation/architecture.md)
-- [Backend Comparison](explanation/backends.md)
-
-## Examples
-
-Visit the [examples](https://github.com/legout/fastreq/tree/main/examples) folder for executable code samples covering all library features.
-
-## Backend Selection
-
-The library automatically detects and uses the best available backend in this priority order:
-
-1. **niquests** - Default (HTTP/2 support, streaming, async native)
-2. **httpx** - Optional (HTTP/2 support with h2 extra, modern async API)
-
-To explicitly select a backend:
-
-```python
-from fastreq import fastreq
-
-results = fastreq(
-    urls=["https://httpbin.org/get"],
-    backend="niquests",  # or "httpx"
-)
-```
-
-## License
-
-MIT License - see [LICENSE](https://github.com/legout/fastreq/blob/main/LICENSE) for details.
+- [`FastRequests` class](reference/api/fastrequests.md) &nbsp;·&nbsp; [`fastreq()`](reference/api/fastreq.md) &nbsp;·&nbsp; [`fastreq_async()`](reference/api/fastreq_async.md)
+- [Backends](reference/backend.md) &nbsp;·&nbsp; [Exceptions](reference/exceptions.md) &nbsp;·&nbsp; [Configuration](reference/configuration.md)

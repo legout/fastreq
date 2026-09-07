@@ -1,47 +1,36 @@
 [project]
 name = "fastreq"
-version = "3.2.0"
+version = "3.2.1"
 description = "High-performance async HTTP client built on niquests and httpx"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [
-    {name = "Volker Lorrmann", email = "volker.lorrmann@gmail.com"},
-]
+authors = [{ name = "Volker Lorrmann", email = "volker.lorrmann@gmail.com" }]
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = [
-    "niquests>=3.12.0",
-    "loguru>=0.7.0",
-]
+dependencies = ["niquests>=3.12.0", "loguru>=0.7.0"]
 
 [project.optional-dependencies]
 httpx = ["httpx>=0.28.0"]
 h2 = ["h2>=4.0.0"]
 progress-rich = ["rich>=13.0.0"]
 progress-tqdm = ["tqdm>=4.66.0"]
-curl = [
-    "curl-cffi>=0.13.0",
-]
+curl = ["curl-cffi>=0.13.0"]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.0",
-    "h2>=4.0.0",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=5.0.0",
-    "curl-cffi>=0.13.0",
-    "zensical>=0.0.52",
-    "mkdocstrings>=1.0.6",
-    "mkdocstrings-python>=2.0.5",
-    "griffe>=2.1.0",
+  "httpx>=0.28.0",
+  "h2>=4.0.0",
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.24.0",
+  "pytest-cov>=5.0.0",
+  "curl-cffi>=0.13.0",
+  "zensical>=0.0.52",
+  "mkdocstrings>=1.0.6",
+  "mkdocstrings-python>=2.0.5",
+  "griffe>=2.1.0",
 ]
-lint = [
-    "ruff>=0.8.0",
-]
-typecheck = [
-    "ty>=0.0.1a7",
-]
+lint = ["ruff>=0.8.0"]
+typecheck = ["ty>=0.0.1a7"]
 [build-system]
 requires = ["uv_build>=0.8.0,<0.12"]
 build-backend = "uv_build"

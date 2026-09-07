@@ -24,7 +24,6 @@ from .exceptions import (
     RetryableResponse,
 )
 from .utils.headers import HeaderManager
-from .utils.logging import configure_logging
 from .utils.progress import ProgressCallback, ProgressOption, gather_with_progress
 from .utils.proxies import ProxyPool, ProxyPoolConfig, ProxySelection
 from .utils.rate_limiter import AsyncRateLimiter, RateLimitConfig
@@ -193,8 +192,8 @@ class FastRequests:
         proxy_cooldown: Seconds before retrying a failed proxy
         webshare_file: Path to a Webshare proxy text file
         headers: Default headers applied to all requests
-        debug: Enable debug logging
-        verbose: Enable verbose output
+        debug: Enable the fastreq loguru namespace (never touches global sinks)
+        verbose: Enable verbose output (stored; progress-bar control)
         return_none_on_failure: Return None instead of raising on failure
     """
 
@@ -240,7 +239,12 @@ class FastRequests:
         self.verbose = verbose
         self.return_none_on_failure = return_none_on_failure
 
-        configure_logging(debug, verbose)
+        # Library hygiene: a constructor must never reconfigure the host
+        # app's global loguru sinks (logger.remove() would destroy them).
+        # debug=True only opts the fastreq namespace back in; full sink
+        # control belongs to fastreq.utils.logging.configure_logging.
+        if debug:
+            logger.enable("fastreq")
 
         self._backend: Backend | None = None
         self._cookies: dict[str, str] = cookies.copy() if cookies else {}
@@ -725,8 +729,8 @@ def fastreq(
         proxy_cooldown: Seconds before retrying a failed proxy
         webshare_file: Path to a Webshare proxy text file
         headers: Default headers applied to all requests
-        debug: Enable debug logging
-        verbose: Enable verbose output
+        debug: Enable the fastreq loguru namespace (never touches global sinks)
+        verbose: Enable verbose output (stored; progress-bar control)
         return_none_on_failure: Return None instead of raising on failure
         method: HTTP method (GET, POST, etc.)
         params: Query parameters
@@ -849,8 +853,8 @@ async def fastreq_async(
         proxy_cooldown: Seconds before retrying a failed proxy
         webshare_file: Path to a Webshare proxy text file
         headers: Default headers applied to all requests
-        debug: Enable debug logging
-        verbose: Enable verbose output
+        debug: Enable the fastreq loguru namespace (never touches global sinks)
+        verbose: Enable verbose output (stored; progress-bar control)
         return_none_on_failure: Return None instead of raising on failure
         method: HTTP method (GET, POST, etc.)
         params: Query parameters

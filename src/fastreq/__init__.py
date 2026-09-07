@@ -27,6 +27,8 @@ Features:
     - Graceful failure handling
 """
 
+from loguru import logger as _logger
+
 from fastreq.backends.base import Backend, NormalizedResponse, RequestConfig, TransportKey
 from fastreq.client import (
     FastRequests,
@@ -80,3 +82,12 @@ __all__ = [
 # Backwards-compatibility aliases
 ParallelRequestsError = FastRequestsError
 ParallelRequests = FastRequests
+
+# Library-grade logging hygiene: loguru's default sink emits DEBUG to
+# stderr, so per-token/per-request chatter ("Rate limit: waiting ...",
+# "Request completed: ...") floods any host application — measured at
+# ~350 lines/s under load. Disabled at import per loguru's official
+# library pattern; opt back in explicitly:
+#     from loguru import logger
+#     logger.enable("fastreq")
+_logger.disable("fastreq")

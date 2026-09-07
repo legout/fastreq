@@ -64,7 +64,7 @@ def progress_reporter(
 
     if selected == "tqdm":
         try:
-            from tqdm.auto import tqdm
+            from tqdm.auto import tqdm  # ty: ignore[unresolved-import]  # optional extra
         except ImportError as exc:
             raise RuntimeError(
                 "progress='tqdm' requires the optional dependency; install fastreq[progress-tqdm]"
@@ -87,7 +87,7 @@ def progress_reporter(
 @contextmanager
 def _tqdm_reporter(total: int, description: str, is_tty: bool):
     try:
-        from tqdm.auto import tqdm
+        from tqdm.auto import tqdm  # ty: ignore[unresolved-import]  # optional extra
     except ImportError as tqdm_error:
         raise RuntimeError(
             "progress=True requires either Rich or tqdm; install "
